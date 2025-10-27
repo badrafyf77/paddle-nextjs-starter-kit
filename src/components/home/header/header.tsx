@@ -1,19 +1,36 @@
+'use client';
+
 import Link from 'next/link';
 import { User } from '@supabase/supabase-js';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
+import { useEffect, useState } from 'react';
 
 interface Props {
   user: User | null;
 }
 
 export default function Header({ user }: Props) {
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
-    <nav>
+    <nav
+      className={`sticky top-0 z-50 transition-all duration-300 ${
+        isScrolled ? 'bg-background/80 backdrop-blur-md border-b border-border/50' : 'bg-transparent'
+      }`}
+    >
       <div className="mx-auto max-w-7xl relative px-[32px] py-[18px] flex items-center justify-between">
         <div className="flex flex-1 items-center justify-start">
           <Link className="flex items-center" href={'/'}>
-            <Image className="w-auto block" src="/logo.svg" width={131} height={28} alt="AeroEdit" />
+            <span className="text-2xl font-bold">Jobora</span>
           </Link>
         </div>
         <div className="flex flex-1 items-center justify-end">

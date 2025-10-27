@@ -9,9 +9,9 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://paddle-billing.vercel.app'),
-  title: 'AeroEdit',
+  title: 'Jobora - AI-Powered Job Search Platform',
   description:
-    'AeroEdit is a powerful team design collaboration app and image editor. With plans for businesses of all sizes, streamline your workflow with real-time collaboration, advanced editing tools, and seamless project management.',
+    'Land your dream job faster with Jobora. AI-powered job search with auto-apply, real-time voice interview practice, and personalized resumes that match your unique writing style.',
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en" className={'min-h-full dark'}>
+    <html lang="en" className={'min-h-full dark scroll-smooth'}>
       <body className={inter.className}>
         {children}
         <Toaster />
