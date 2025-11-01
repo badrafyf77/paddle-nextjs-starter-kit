@@ -150,22 +150,12 @@ async def lifespan(app: FastAPI):
             "bedrock_region": BEDROCK_REGION,
         })
     
-    # Initialize shared components (heavy, reusable)
-    app.state.Upsampler = UpsampleOverlap()
+    # Store only configuration and stateless components
+    # Each connection will create its own pipeline and audio processor
+    app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
+    app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Create ONE shared SpeechPipelineManager for TTS/LLM engines
-    # But we'll manage conversation history per-connection
-    app.state.SharedPipelineManager = SpeechPipelineManager(**PIPELINE_CONFIG)
-    
-    # Create ONE shared AudioInputProcessor
-    # But we'll manage audio queues per-connection
-    app.state.SharedAudioProcessor = AudioInputProcessor(
-        LANGUAGE,
-        is_orpheus=TTS_START_ENGINE=="orpheus",
-        pipeline_latency=app.state.SharedPipelineManager.full_output_pipeline_latency / 1000,
-    )
-    
-    logger.info("🖥️✅ Server initialized with shared pipeline (conversation history will be isolated per-connection)")
+    logger.info("🖥️✅ Server initialized - pipelines will be created per-connection for true isolation")
 
     yield
 
@@ -705,7 +695,8 @@ class TranscriptionCallbacks:
                 if self.last_abort_text != self.abort_text:
                     self.last_abort_text = self.abort_text
                     logger.debug(f"🖥️🧠 Abort check triggered by partial: '{self.abort_text}'")
-                    self.app.state.SpeechPipelineManager.check_abort(self.abort_text, False, "on_partial")
+                    # Use connection-specific pipeline manager
+                    self.conn_state.pipeline_manager.check_abort(self.abort_text, False, "on_partial")
 
     def on_partial(self, txt: str):
         """
@@ -993,14 +984,17 @@ async def websocket_endpoint(ws: WebSocket):
     connection_id = id(ws)  # Unique ID for this connection
     logger.info(f"🖥️✅ Client connected via WebSocket (Connection ID: {connection_id})")
 
-    # Use shared pipeline manager but clear history for this connection
-    pipeline_manager = app.state.SharedPipelineManager
-    pipeline_manager.history = []  # Reset conversation history for this user
-    logger.info(f"🖥️🔧 Using shared pipeline with isolated history for connection {connection_id}")
+    # Create DEDICATED pipeline manager for this connection
+    pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
+    logger.info(f"🖥️🔧 Created dedicated pipeline for connection {connection_id}")
     
-    # Use shared audio processor
-    audio_processor = app.state.SharedAudioProcessor
-    logger.info(f"🖥️🎤 Using shared audio processor for connection {connection_id}")
+    # Create DEDICATED audio processor for this connection
+    audio_processor = AudioInputProcessor(
+        LANGUAGE,
+        is_orpheus=TTS_START_ENGINE=="orpheus",
+        pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
+    )
+    logger.info(f"🖥️🎤 Created dedicated audio processor for connection {connection_id}")
 
     message_queue = asyncio.Queue()
     audio_chunks = asyncio.Queue()
@@ -1055,10 +1049,27 @@ async def websocket_endpoint(ws: WebSocket):
         # Clear this connection's history
         conn_state.conversation_history = []
         
+        # Cancel all tasks
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Clean up connection-specific resources
+        try:
+            # Abort any ongoing generation
+            if pipeline_manager.running_generation:
+                pipeline_manager.abort_generation(reason="Connection closed")
+            
+            # Clear pipeline resources
+            pipeline_manager.history = []
+            
+            # Stop audio processor
+            audio_processor.interrupted = True
+            
+            logger.info(f"🖥️✅ Cleaned up pipeline and audio processor for connection {connection_id}")
+        except Exception as e:
+            logger.error(f"🖥️⚠️ Error during cleanup for connection {connection_id}: {e}")
         
         logger.info(f"🖥️❌ WebSocket session {connection_id} ended.")
 
