@@ -1,0 +1,68 @@
+# Docker Compose for Voice Chat with Ollama (Local LLM)
+# Use this if you want to run Ollama instead of Bedrock
+
+services:
+  # Your FastAPI Application Service
+  app:
+    build: .
+    image: realtime-voice-chat:latest
+    container_name: realtime-voice-chat-app
+    ports:
+      - '8000:8000'
+    environment:
+      # --- LLM Configuration (Ollama) ---
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=${LLM_MODEL:-llama3.2:latest}
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+      # --- Other App Environment Variables ---
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_AUDIO_QUEUE_SIZE=${MAX_AUDIO_QUEUE_SIZE:-50}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - HF_HOME=/home/appuser/.cache/huggingface
+      - TORCH_HOME=/home/appuser/.cache/torch
+    volumes:
+      # Optional: Mount code for live development
+      # - ./code:/app/code
+
+      # Mount cache directories
+      - huggingface_cache:/home/appuser/.cache/huggingface
+      - torch_cache:/home/appuser/.cache/torch
+    depends_on:
+      - ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    restart: unless-stopped
+
+  # Ollama Server Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: realtime-voice-chat-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    restart: unless-stopped
+
+# Define named volumes for persistent data
+volumes:
+  ollama_data:
+    driver: local
+  huggingface_cache:
+    driver: local
+  torch_cache:
+    driver: local

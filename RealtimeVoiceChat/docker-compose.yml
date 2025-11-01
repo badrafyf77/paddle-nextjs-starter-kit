@@ -1,0 +1,78 @@
+# Remove the version: '3.8' line as per the warning
+services:
+  # Your FastAPI Application Service
+  app:
+    build: . # Build the image using the SIMPLIFIED Dockerfile
+    image: realtime-voice-chat:latest # Name the image built by 'build:'
+    container_name: realtime-voice-chat-app
+    ports:
+      - '8000:8000'
+    environment:
+      # --- LLM Configuration (Ollama by default) ---
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - BEDROCK_AGENT_ID=${BEDROCK_AGENT_ID:-VUEHUL2HDK}
+      - BEDROCK_AGENT_ALIAS_ID=${BEDROCK_AGENT_ALIAS_ID:-JBU23UII65}
+      - BEDROCK_REGION=${BEDROCK_REGION:-us-west-2}
+
+      # --- AWS Credentials (required for Bedrock) ---
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+
+      # --- Ollama Configuration (if using LLM_PROVIDER=ollama) ---
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+      # --- Other App Environment Variables ---
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_AUDIO_QUEUE_SIZE=${MAX_AUDIO_QUEUE_SIZE:-50}
+      - NVIDIA_VISIBLE_DEVICES=all # For app's PyTorch/DeepSpeed/etc
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - HF_HOME=/home/appuser/.cache/huggingface
+      - TORCH_HOME=/home/appuser/.cache/torch
+    volumes:
+      # Optional: Mount code for live development
+      # - ./code:/app/code
+      # Mount cache directories
+      - huggingface_cache:/home/appuser/.cache/huggingface
+      - torch_cache:/home/appuser/.cache/torch
+
+      # Optional: Mount AWS credentials (if using AWS CLI profile)
+      # - ~/.aws:/home/appuser/.aws:ro
+    depends_on:
+      - ollama
+    deploy: # GPU access for the app
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    restart: unless-stopped
+
+  # Ollama Server Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: realtime-voice-chat-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    restart: unless-stopped
+
+# Define named volumes for persistent data
+volumes:
+  ollama_data:
+    driver: local
+  huggingface_cache:
+    driver: local
+  torch_cache:
+    driver: local
