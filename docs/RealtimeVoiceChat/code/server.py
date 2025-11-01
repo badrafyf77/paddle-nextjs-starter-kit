@@ -154,18 +154,14 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Pre-initialize and warm up shared LLM (the slow part)
-    # TTS will be per-connection as it's fast and may have state conflicts
-    logger.info("🖥️🔥 Pre-warming shared LLM (this may take a minute)...")
-    
-    # Create a temporary pipeline just to initialize and warm up the LLM
+    # Pre-warm models by creating a temporary pipeline (then discard it)
+    # This loads models into GPU memory so subsequent connections are faster
+    logger.info("🖥️🔥 Pre-warming models (this may take a minute)...")
     temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
+    logger.info("🖥️✅ Server initialized - models pre-loaded into GPU memory")
     
-    # Store the warmed-up LLM instance for reuse across connections
-    app.state.SharedLLM = temp_pipeline.llm
-    app.state.SharedLLM_InferenceTime = temp_pipeline.llm_inference_time
-    
-    logger.info("🖥️✅ Server initialized - LLM warmed up and ready for connections")
+    # Note: We don't store temp_pipeline because SpeechPipelineManager has per-connection state
+    # The warm-up ensures models are cached in GPU, making subsequent initializations faster
 
     yield
 
@@ -994,21 +990,21 @@ async def websocket_endpoint(ws: WebSocket):
     connection_id = id(ws)  # Unique ID for this connection
     logger.info(f"🖥️✅ Client connected via WebSocket (Connection ID: {connection_id})")
 
-    # Create pipeline manager with SHARED LLM but ISOLATED TTS and state
+    message_queue = asyncio.Queue()
+    audio_chunks = asyncio.Queue()
+    
+    # Send "initializing" status to client
+    await ws.send_json({
+        "type": "status",
+        "status": "initializing",
+        "message": "Setting up your interview session..."
+    })
+    
+    # Create DEDICATED pipeline manager for this connection
+    # This is necessary because SpeechPipelineManager has per-connection state
+    # (running_generation, requests_queue, history, etc.)
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    
-    # Replace the LLM with pre-warmed shared instance (this is the slow part)
-    pipeline_manager.llm = app.state.SharedLLM
-    pipeline_manager.llm_inference_time = app.state.SharedLLM_InferenceTime
-    
-    # Keep per-connection: audio (TTS), text_similarity, text_context
-    # These are lightweight and may have state conflicts if shared
-    
-    # Reset conversation history for this connection (isolated state)
-    pipeline_manager.history = []
-    pipeline_manager.bedrock_session_id = str(id(ws)) if pipeline_manager.llm_provider == "bedrock" else None
-    
-    logger.info(f"🖥️🔧 Created pipeline with shared LLM for connection {connection_id}")
+    logger.info(f"🖥️🔧 Created dedicated pipeline for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
@@ -1017,9 +1013,14 @@ async def websocket_endpoint(ws: WebSocket):
         pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
     )
     logger.info(f"🖥️🎤 Created dedicated audio processor for connection {connection_id}")
-
-    message_queue = asyncio.Queue()
-    audio_chunks = asyncio.Queue()
+    
+    # Send "ready" status to client
+    await ws.send_json({
+        "type": "status",
+        "status": "ready",
+        "message": "Interview session ready! You can start speaking now."
+    })
+    logger.info(f"🖥️✅ Connection {connection_id} is ready for audio")
 
     # Create connection state holder
     class ConnectionState:

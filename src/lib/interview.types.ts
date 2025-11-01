@@ -14,4 +14,6 @@ export interface WebSocketMessage {
   content?: string;
   sentence_id?: number;
   speed?: number;
+  status?: string;
+  message?: string;
 }

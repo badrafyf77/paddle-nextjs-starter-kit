@@ -3,6 +3,8 @@ import type { Message, WebSocketMessage } from '@/lib/interview.types';
 
 export function useWebSocket(serverUrl: string) {
   const [isConnected, setIsConnected] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -47,6 +49,8 @@ export function useWebSocket(serverUrl: string) {
     socket.onopen = () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      setIsReady(false);
+      setStatusMessage('Connecting...');
     };
 
     socket.onmessage = (event) => {
@@ -63,6 +67,8 @@ export function useWebSocket(serverUrl: string) {
     socket.onclose = () => {
       console.log('WebSocket disconnected');
       setIsConnected(false);
+      setIsReady(false);
+      setStatusMessage('');
     };
 
     socket.onerror = (error) => {
@@ -93,6 +99,19 @@ export function useWebSocket(serverUrl: string) {
     const { type, content, sentence_id } = data;
 
     switch (type) {
+      case 'status':
+        // Handle server status messages (initializing, ready, error)
+        console.log(`Server status: ${data.status} - ${data.message}`);
+        setStatusMessage(data.message || '');
+
+        if (data.status === 'ready') {
+          setIsReady(true);
+          console.log('✅ Server is ready - you can start speaking');
+        } else if (data.status === 'initializing') {
+          setIsReady(false);
+        }
+        break;
+
       case 'partial_user_request':
         setMessages((prev) => {
           const filtered = prev.filter((m) => m.type !== 'partial' || m.role !== 'user');
@@ -270,6 +289,8 @@ export function useWebSocket(serverUrl: string) {
 
   return {
     isConnected,
+    isReady,
+    statusMessage,
     messages,
     connect,
     disconnect,

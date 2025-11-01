@@ -22,11 +22,13 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
   const [isRecording, setIsRecording] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
-  const { isConnected, messages, connect, disconnect, clearHistory, sendAudioData } = useWebSocket(serverUrl);
+  const { isConnected, isReady, statusMessage, messages, connect, disconnect, clearHistory, sendAudioData } =
+    useWebSocket(serverUrl);
 
   const { stream: webcamStream, startWebcam, stopWebcam, error: webcamError } = useWebcam();
 
-  const { startCapture, stopCapture } = useAudioCapture(sendAudioData, () => false);
+  // Only allow audio capture when server is ready
+  const { startCapture, stopCapture } = useAudioCapture(sendAudioData, () => !isReady);
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -94,7 +96,13 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Video Feed</CardTitle>
                 <div className="flex items-center gap-2">
-                  {isRecording && (
+                  {isConnected && !isReady && (
+                    <Badge variant="secondary" className="animate-pulse">
+                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                      Initializing...
+                    </Badge>
+                  )}
+                  {isRecording && isReady && (
                     <Badge variant="destructive" className="animate-pulse">
                       <div className="w-2 h-2 bg-white rounded-full mr-2" />
                       Recording
@@ -148,11 +156,11 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
                 </Button>
               ) : (
                 <>
-                  <Button onClick={handleStop} variant="destructive" size="lg">
+                  <Button onClick={handleStop} variant="destructive" size="lg" disabled={!isReady}>
                     <VideoOff className="mr-2 h-4 w-4" />
                     Stop
                   </Button>
-                  <Button onClick={handleReset} variant="outline" size="lg">
+                  <Button onClick={handleReset} variant="outline" size="lg" disabled={!isReady}>
                     <RotateCcw className="mr-2 h-4 w-4" />
                     Reset
                   </Button>
@@ -162,7 +170,13 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
 
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Mic className="h-4 w-4" />
-              <span>{isRecording ? 'Microphone active' : 'Microphone inactive'}</span>
+              <span>
+                {isConnected && !isReady
+                  ? statusMessage || 'Initializing...'
+                  : isRecording
+                    ? 'Microphone active'
+                    : 'Microphone inactive'}
+              </span>
             </div>
           </div>
         </CardContent>
