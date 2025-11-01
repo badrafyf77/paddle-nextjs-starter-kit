@@ -147,6 +147,12 @@ RUN echo "Preloading SentenceFinishedClassification model..." && \
                 print('Model downloads successful.')" \
     || (echo "Sentence Classifier download failed" && exit 1)
 
+# <<<--- spaCy en_core_web_sm Pre-download --->>>
+RUN echo "Preloading spaCy en_core_web_sm model..." && \
+    python3 -m spacy download en_core_web_sm && \
+    python3 -c "import spacy; nlp = spacy.load('en_core_web_sm'); print('spaCy model loaded successfully.')" \
+    || (echo "spaCy model download failed" && exit 1)
+
 
 # Create a non-root user and group - DO NOT switch to it here
 RUN groupadd --gid 1001 appgroup && \

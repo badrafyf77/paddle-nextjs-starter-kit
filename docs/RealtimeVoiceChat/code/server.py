@@ -150,12 +150,22 @@ async def lifespan(app: FastAPI):
             "bedrock_region": BEDROCK_REGION,
         })
     
-    # Store only configuration and stateless components
-    # Each connection will create its own pipeline and audio processor
+    # Store configuration and stateless components
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    logger.info("🖥️✅ Server initialized - pipelines will be created per-connection for true isolation")
+    # Pre-initialize and warm up shared LLM (the slow part)
+    # TTS will be per-connection as it's fast and may have state conflicts
+    logger.info("🖥️🔥 Pre-warming shared LLM (this may take a minute)...")
+    
+    # Create a temporary pipeline just to initialize and warm up the LLM
+    temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
+    
+    # Store the warmed-up LLM instance for reuse across connections
+    app.state.SharedLLM = temp_pipeline.llm
+    app.state.SharedLLM_InferenceTime = temp_pipeline.llm_inference_time
+    
+    logger.info("🖥️✅ Server initialized - LLM warmed up and ready for connections")
 
     yield
 
@@ -984,9 +994,21 @@ async def websocket_endpoint(ws: WebSocket):
     connection_id = id(ws)  # Unique ID for this connection
     logger.info(f"🖥️✅ Client connected via WebSocket (Connection ID: {connection_id})")
 
-    # Create DEDICATED pipeline manager for this connection
+    # Create pipeline manager with SHARED LLM but ISOLATED TTS and state
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    logger.info(f"🖥️🔧 Created dedicated pipeline for connection {connection_id}")
+    
+    # Replace the LLM with pre-warmed shared instance (this is the slow part)
+    pipeline_manager.llm = app.state.SharedLLM
+    pipeline_manager.llm_inference_time = app.state.SharedLLM_InferenceTime
+    
+    # Keep per-connection: audio (TTS), text_similarity, text_context
+    # These are lightweight and may have state conflicts if shared
+    
+    # Reset conversation history for this connection (isolated state)
+    pipeline_manager.history = []
+    pipeline_manager.bedrock_session_id = str(id(ws)) if pipeline_manager.llm_provider == "bedrock" else None
+    
+    logger.info(f"🖥️🔧 Created pipeline with shared LLM for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
