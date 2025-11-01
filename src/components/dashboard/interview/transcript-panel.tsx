@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MessageBubble } from './message-bubble';
+import { MessageSquare } from 'lucide-react';
 import type { Message } from '@/lib/interview.types';
 
 interface TranscriptPanelProps {
@@ -22,7 +23,6 @@ export function TranscriptPanel({ messages }: TranscriptPanelProps) {
     const hasNewFinalMessage = finalMessages.length > lastMessageCountRef.current;
 
     if (hasNewFinalMessage) {
-      // New final message - scroll to bottom
       setTimeout(() => {
         if (scrollRef.current) {
           scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -32,43 +32,29 @@ export function TranscriptPanel({ messages }: TranscriptPanelProps) {
     }
   }, [messages, isUserScrolling]);
 
-  // Track user scrolling
   const handleScroll = () => {
     if (!scrollRef.current) return;
-
     setIsUserScrolling(true);
 
-    // Clear existing timeout
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
 
-    // Reset user scrolling flag after they stop scrolling
     scrollTimeoutRef.current = setTimeout(() => {
       setIsUserScrolling(false);
     }, 1000);
   };
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Live Transcript</h2>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-sm text-gray-600">Live</span>
-          </div>
-        </div>
-      </div>
-
+    <div className="flex flex-col h-[500px]">
       {/* Messages Container */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+          <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
-              <div className="text-4xl mb-2">💬</div>
-              <p>Conversation will appear here</p>
+              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">Conversation will appear here</p>
+              <p className="text-xs mt-1">Start speaking to begin</p>
             </div>
           </div>
         ) : (

@@ -100,7 +100,7 @@ export function useWebSocket(serverUrl: string) {
             return [
               ...filtered,
               {
-                id: 'partial-user-current',
+                id: `partial-user-${Date.now()}`,
                 role: 'user' as const,
                 content,
                 type: 'partial' as const,
@@ -133,20 +133,45 @@ export function useWebSocket(serverUrl: string) {
 
       case 'assistant_sentence':
         setMessages((prev) => {
-          if (content?.trim()) {
+          if (!content?.trim()) return prev;
+
+          // Find the last assistant message that's still being generated
+          const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
+
+          if (lastAssistantIndex !== -1) {
+            const lastMessage = prev[lastAssistantIndex];
+
+            // Check if this sentence was already added (prevent duplicates)
+            if (lastMessage.content.includes(content)) {
+              return prev;
+            }
+
+            // Append to existing partial assistant message
+            const updated = [...prev];
+            const separator =
+              lastMessage.content.endsWith('.') ||
+              lastMessage.content.endsWith('!') ||
+              lastMessage.content.endsWith('?')
+                ? ' '
+                : ' ';
+            updated[lastAssistantIndex] = {
+              ...updated[lastAssistantIndex],
+              content: updated[lastAssistantIndex].content + separator + content,
+            };
+            return updated;
+          } else {
+            // Create new partial assistant message
             return [
               ...prev,
               {
-                id: `assistant-sentence-${sentence_id}-${Date.now()}`,
+                id: `assistant-${Date.now()}`,
                 role: 'assistant' as const,
                 content,
-                type: 'final' as const,
+                type: 'partial' as const,
                 timestamp: Date.now(),
-                sentence_id,
               },
             ];
           }
-          return prev;
         });
         break;
 
@@ -157,7 +182,7 @@ export function useWebSocket(serverUrl: string) {
             return [
               ...filtered,
               {
-                id: 'partial-assistant-current',
+                id: `partial-assistant-${Date.now()}`,
                 role: 'assistant' as const,
                 content,
                 type: 'partial' as const,
@@ -171,12 +196,18 @@ export function useWebSocket(serverUrl: string) {
 
       case 'final_assistant_answer':
         setMessages((prev) => {
-          return prev.map((msg) => {
-            if (msg.role === 'assistant' && msg.type === 'partial') {
-              return { ...msg, type: 'final' as const };
-            }
-            return msg;
-          });
+          // Mark the last partial assistant message as final
+          const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
+
+          if (lastAssistantIndex !== -1) {
+            const updated = [...prev];
+            updated[lastAssistantIndex] = {
+              ...updated[lastAssistantIndex],
+              type: 'final' as const,
+            };
+            return updated;
+          }
+          return prev;
         });
         break;
 

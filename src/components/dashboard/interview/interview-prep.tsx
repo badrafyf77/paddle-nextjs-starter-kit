@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { VideoCall } from './video-call';
-import { Mic, Video, Settings } from 'lucide-react';
+import { Video, Mic, MessageSquare, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export function InterviewPrep() {
   const [isInInterview, setIsInInterview] = useState(false);
@@ -38,92 +39,166 @@ export function InterviewPrep() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <Card>
-        <CardHeader>
-          <CardTitle>AI Interview Practice</CardTitle>
-          <CardDescription>
-            Practice your interview skills with our AI interviewer. Get real-time feedback and improve your responses.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Your Name</Label>
-              <Input
-                id="name"
-                placeholder="Enter your full name"
-                value={candidateName}
-                onChange={(e) => setCandidateName(e.target.value)}
-              />
+    <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
+      {/* Main Setup Card */}
+      <div className="lg:col-span-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Start Interview Practice</CardTitle>
+                <CardDescription className="mt-1">
+                  Practice with our AI interviewer and improve your skills
+                </CardDescription>
+              </div>
+              <Badge variant="default" className="bg-blue-600">
+                AI Powered
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Your Name</Label>
+                <Input
+                  id="name"
+                  placeholder="Enter your full name"
+                  value={candidateName}
+                  onChange={(e) => setCandidateName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="title">Interview Title (Optional)</Label>
+                <Input
+                  id="title"
+                  placeholder="e.g., Software Engineer Interview"
+                  value={interviewTitle}
+                  onChange={(e) => setInterviewTitle(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="server">Server URL</Label>
+                <Input
+                  id="server"
+                  placeholder="ws://your-server:8000"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Your voice chat server endpoint</p>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="title">Interview Title (Optional)</Label>
-              <Input
-                id="title"
-                placeholder="e.g., Software Engineer Interview"
-                value={interviewTitle}
-                onChange={(e) => setInterviewTitle(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="server">Voice Chat Server URL</Label>
-              <Input
-                id="server"
-                placeholder="ws://your-ec2-instance:8000"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-              />
-              <p className="text-sm text-muted-foreground">
-                Enter your AWS EC2 instance URL where the voice chat server is running
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-muted p-4 rounded-lg space-y-2">
-            <h4 className="font-medium flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Before you start:
-            </h4>
-            <ul className="text-sm space-y-1 ml-6 list-disc text-muted-foreground">
-              <li>Ensure your camera and microphone are connected</li>
-              <li>Find a quiet environment</li>
-              <li>Your voice chat server must be running on AWS EC2</li>
-              <li>Grant browser permissions for camera and microphone</li>
-            </ul>
-          </div>
-
-          <div className="flex gap-3">
-            <Button onClick={handleStartInterview} className="flex-1" size="lg">
+            <Button onClick={handleStartInterview} className="w-full" size="lg">
               <Video className="mr-2 h-4 w-4" />
-              Start Interview
+              Start Interview Session
             </Button>
-          </div>
+          </CardContent>
+        </Card>
 
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+        {/* Requirements Card */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              Before You Start
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {[
+                'Ensure your camera and microphone are connected',
+                'Find a quiet environment with good lighting',
+                'Grant browser permissions when prompted',
+                'Voice chat server must be running and accessible',
+              ].map((item, index) => (
+                <div key={index} className="flex items-start gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-muted-foreground">{item}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Features Sidebar */}
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Features</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
               <div className="bg-primary/10 p-2 rounded-lg">
                 <Mic className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <h4 className="font-medium text-sm">Real-time Voice</h4>
-                <p className="text-xs text-muted-foreground">Natural conversation with AI</p>
+                <p className="text-xs text-muted-foreground mt-1">Natural conversation with AI interviewer</p>
               </div>
             </div>
+
             <div className="flex items-start gap-3">
               <div className="bg-primary/10 p-2 rounded-lg">
                 <Video className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h4 className="font-medium text-sm">Video Recording</h4>
-                <p className="text-xs text-muted-foreground">See yourself as you practice</p>
+                <h4 className="font-medium text-sm">Video Practice</h4>
+                <p className="text-xs text-muted-foreground mt-1">See yourself as you practice</p>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+
+            <div className="flex items-start gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <MessageSquare className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h4 className="font-medium text-sm">Live Transcript</h4>
+                <p className="text-xs text-muted-foreground mt-1">Real-time conversation transcript</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <TrendingUp className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h4 className="font-medium text-sm">Improve Skills</h4>
+                <p className="text-xs text-muted-foreground mt-1">Get better with each practice session</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Tips</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <span className="text-primary">•</span>
+                <span>Speak clearly and at a moderate pace</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary">•</span>
+                <span>Use the STAR method for behavioral questions</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary">•</span>
+                <span>Practice makes perfect - do multiple sessions</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary">•</span>
+                <span>Review your transcript after each session</span>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
