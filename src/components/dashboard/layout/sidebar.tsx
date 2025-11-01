@@ -1,6 +1,6 @@
 'use client';
 
-import { Album, CreditCard, Home, Bot } from 'lucide-react';
+import { Album, CreditCard, Home, Bot, Video } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,11 @@ const sidebarItems = [
     title: 'Job Agent',
     icon: <Bot className="h-6 w-6" />,
     href: '/dashboard/agent',
+  },
+  {
+    title: 'Interview Prep',
+    icon: <Video className="h-6 w-6" />,
+    href: '/dashboard/interview',
   },
 ];
 

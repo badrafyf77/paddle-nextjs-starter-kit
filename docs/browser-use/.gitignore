@@ -1,0 +1,51 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Browser profiles
+temp-profile-*/
+chrome-profile-*/
+
+# Logs
+*.log
+application_logs.txt
+
+# Results
+application_results.csv
+
+# Sensitive data (uncomment if you want to keep profile private)
+# candidate_profile.py
+
+# Screenshots
+screenshots/
+*.png
+*.jpg
+
+# Documents
+*.pdf
+resume.pdf
+cover_letter.pdf
+portfolio.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
