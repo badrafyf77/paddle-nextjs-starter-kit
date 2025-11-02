@@ -154,19 +154,22 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Pre-warm the LLM by creating a temporary pipeline and extracting it
-    logger.info("🖥️🔥 Pre-warming LLM (this may take a minute)...")
+    # Pre-warm the LLM to measure inference time, but don't share the instance
+    # Each connection needs its own LLM instance to avoid state conflicts
+    logger.info("🖥️🔥 Pre-warming LLM to measure inference time (this may take a minute)...")
     temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
     
-    # Store ONLY the pre-warmed LLM to reuse across connections
-    # TTS must be per-connection as it has state that conflicts between users
-    app.state.PreWarmedLLM = temp_pipeline.llm
+    # Store ONLY the inference time measurement, not the LLM instance itself
+    # Each connection will create its own LLM/TTS/STT to avoid state conflicts
     app.state.LLM_InferenceTime = temp_pipeline.llm_inference_time
     
-    logger.info("🖥️✅ Server initialized - LLM pre-warmed and ready")
+    # Clean up the temporary pipeline
+    temp_pipeline.shutdown()
+    del temp_pipeline
     
-    # Note: We only share the LLM because TTS/STT have per-connection state
-    # Each connection will create its own TTS but reuse the pre-warmed LLM
+    logger.info("🖥️✅ Server initialized - ready for connections")
+    
+    # Note: Each connection creates its own isolated pipeline to avoid conflicts
 
     yield
 
@@ -1005,16 +1008,15 @@ async def websocket_endpoint(ws: WebSocket):
     })
     
     # Create DEDICATED pipeline manager for this connection
-    # This is necessary because SpeechPipelineManager has per-connection state
-    # (running_generation, requests_queue, history, etc.)
+    # Each connection gets its own isolated pipeline (LLM, TTS, history, etc.)
+    # This ensures no state conflicts between concurrent users
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
     
-    # Replace ONLY the LLM with pre-warmed one (TTS must be per-connection)
-    # This avoids the LLM warm-up delay but keeps TTS isolated
-    pipeline_manager.llm = app.state.PreWarmedLLM
+    # Use the pre-measured inference time to avoid re-measuring
     pipeline_manager.llm_inference_time = app.state.LLM_InferenceTime
+    pipeline_manager.full_output_pipeline_latency = pipeline_manager.llm_inference_time + pipeline_manager.audio.tts_inference_time
     
-    logger.info(f"🖥️🔧 Created pipeline with pre-warmed LLM for connection {connection_id}")
+    logger.info(f"🖥️🔧 Created isolated pipeline for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
