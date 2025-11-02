@@ -154,21 +154,19 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Pre-warm models by creating a temporary pipeline and extracting reusable components
-    logger.info("🖥️🔥 Pre-warming models (this may take a minute)...")
+    # Pre-warm the LLM by creating a temporary pipeline and extracting it
+    logger.info("🖥️🔥 Pre-warming LLM (this may take a minute)...")
     temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
     
-    # Store the pre-warmed components to reuse across connections
+    # Store ONLY the pre-warmed LLM to reuse across connections
+    # TTS must be per-connection as it has state that conflicts between users
     app.state.PreWarmedLLM = temp_pipeline.llm
     app.state.LLM_InferenceTime = temp_pipeline.llm_inference_time
-    app.state.PreWarmedAudioProcessor = temp_pipeline.audio  # TTS engine
-    app.state.PreWarmedTextSimilarity = temp_pipeline.text_similarity
-    app.state.PreWarmedTextContext = temp_pipeline.text_context
     
-    logger.info("🖥️✅ Server initialized - models pre-warmed and ready")
+    logger.info("🖥️✅ Server initialized - LLM pre-warmed and ready")
     
-    # Note: We extract reusable components because SpeechPipelineManager has per-connection state
-    # Each connection will create its own pipeline but reuse the pre-warmed models
+    # Note: We only share the LLM because TTS/STT have per-connection state
+    # Each connection will create its own TTS but reuse the pre-warmed LLM
 
     yield
 
@@ -1011,15 +1009,12 @@ async def websocket_endpoint(ws: WebSocket):
     # (running_generation, requests_queue, history, etc.)
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
     
-    # Replace the newly created components with pre-warmed ones
-    # This avoids the initialization delay per connection
+    # Replace ONLY the LLM with pre-warmed one (TTS must be per-connection)
+    # This avoids the LLM warm-up delay but keeps TTS isolated
     pipeline_manager.llm = app.state.PreWarmedLLM
     pipeline_manager.llm_inference_time = app.state.LLM_InferenceTime
-    pipeline_manager.audio = app.state.PreWarmedAudioProcessor
-    pipeline_manager.text_similarity = app.state.PreWarmedTextSimilarity
-    pipeline_manager.text_context = app.state.PreWarmedTextContext
     
-    logger.info(f"🖥️🔧 Created pipeline with pre-warmed models for connection {connection_id}")
+    logger.info(f"🖥️🔧 Created pipeline with pre-warmed LLM for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
