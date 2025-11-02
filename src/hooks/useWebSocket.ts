@@ -93,6 +93,8 @@ export function useWebSocket(serverUrl: string) {
       ttsWorkletNodeRef.current = null;
     }
     setIsConnected(false);
+    setIsReady(false);
+    setStatusMessage('');
   }, []);
 
   const handleJSONMessage = useCallback((data: WebSocketMessage) => {

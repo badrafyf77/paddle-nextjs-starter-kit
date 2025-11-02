@@ -27,27 +27,13 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
 
   const { stream: webcamStream, startWebcam, stopWebcam, error: webcamError } = useWebcam();
 
-  // Only allow audio capture when server is ready
-  const { startCapture, stopCapture } = useAudioCapture(sendAudioData, () => !isReady);
+  // Audio capture - no blocking needed, server will handle it
+  const { startCapture, stopCapture } = useAudioCapture(sendAudioData, () => false);
 
   const handleStart = async () => {
     setIsStarting(true);
     try {
       await connect();
-
-      // Wait for server to be ready before starting audio/video
-      // The isReady state will be set by the WebSocket status message
-      const maxWaitTime = 30000; // 30 seconds timeout
-      const startTime = Date.now();
-
-      while (!isReady && Date.now() - startTime < maxWaitTime) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      if (!isReady) {
-        throw new Error('Server initialization timeout');
-      }
-
       await startWebcam();
       await startCapture();
       setIsRecording(true);
