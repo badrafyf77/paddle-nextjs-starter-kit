@@ -284,7 +284,6 @@ class TranscriptionProcessor:
                     if time_since_silence > potential_sentence_end_time:
                         # Check if realtime_text exists before logging/detecting
                         current_text = self.realtime_text if self.realtime_text else ""
-                        logger.info(f"👂🔚 {Colors.YELLOW}Potential sentence end detected (timed out){Colors.RESET}: {current_text}")
                         # Use force_yield=True because this is triggered by timeout, not punctuation detection
                         self.detect_potential_sentence_end(current_text, force_yield=True, force_ellipses=True) # Force ellipses if timeout occurs
 

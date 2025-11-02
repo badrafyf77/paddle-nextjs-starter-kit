@@ -730,7 +730,6 @@ class TranscriptionCallbacks:
         """Callback invoked when the system determines TTS synthesis can proceed."""
         # Access connection-specific manager state
         if self.conn_state.pipeline_manager.running_generation and not self.conn_state.pipeline_manager.running_generation.abortion_started:
-            logger.info(f"{Colors.apply('🖥️🔊 TTS ALLOWED').blue}")
             self.conn_state.pipeline_manager.running_generation.tts_quick_allowed_event.set()
 
     def on_potential_sentence(self, txt: str):
