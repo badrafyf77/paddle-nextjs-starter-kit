@@ -154,18 +154,21 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Pre-warm the LLM by creating a temporary pipeline and extracting the LLM
-    logger.info("🖥️🔥 Pre-warming LLM (this may take a minute)...")
+    # Pre-warm models by creating a temporary pipeline and extracting reusable components
+    logger.info("🖥️🔥 Pre-warming models (this may take a minute)...")
     temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
     
-    # Store the pre-warmed LLM instance to reuse across connections
+    # Store the pre-warmed components to reuse across connections
     app.state.PreWarmedLLM = temp_pipeline.llm
     app.state.LLM_InferenceTime = temp_pipeline.llm_inference_time
+    app.state.PreWarmedAudioProcessor = temp_pipeline.audio  # TTS engine
+    app.state.PreWarmedTextSimilarity = temp_pipeline.text_similarity
+    app.state.PreWarmedTextContext = temp_pipeline.text_context
     
-    logger.info("🖥️✅ Server initialized - LLM pre-warmed and ready")
+    logger.info("🖥️✅ Server initialized - models pre-warmed and ready")
     
-    # Note: We extract only the LLM because SpeechPipelineManager has per-connection state
-    # Each connection will create its own pipeline but reuse the pre-warmed LLM
+    # Note: We extract reusable components because SpeechPipelineManager has per-connection state
+    # Each connection will create its own pipeline but reuse the pre-warmed models
 
     yield
 
@@ -1008,12 +1011,15 @@ async def websocket_endpoint(ws: WebSocket):
     # (running_generation, requests_queue, history, etc.)
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
     
-    # Replace the newly created LLM with the pre-warmed one
-    # This avoids the 30-60s warm-up delay per connection
+    # Replace the newly created components with pre-warmed ones
+    # This avoids the initialization delay per connection
     pipeline_manager.llm = app.state.PreWarmedLLM
     pipeline_manager.llm_inference_time = app.state.LLM_InferenceTime
+    pipeline_manager.audio = app.state.PreWarmedAudioProcessor
+    pipeline_manager.text_similarity = app.state.PreWarmedTextSimilarity
+    pipeline_manager.text_context = app.state.PreWarmedTextContext
     
-    logger.info(f"🖥️🔧 Created pipeline with pre-warmed LLM for connection {connection_id}")
+    logger.info(f"🖥️🔧 Created pipeline with pre-warmed models for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
