@@ -17,9 +17,9 @@ export function useWebSocket(serverUrl: string) {
       return;
     }
 
-    // Initialize Audio Context for TTS playback
+    // Initialize Audio Context for TTS playback (24kHz - direct from Kokoro TTS, no upsampling)
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+      audioContextRef.current = new AudioContext({ sampleRate: 24000 });
       await audioContextRef.current.audioWorklet.addModule('/static/ttsPlaybackProcessor.js');
 
       ttsWorkletNodeRef.current = new AudioWorkletNode(audioContextRef.current, 'tts-playback-processor');
