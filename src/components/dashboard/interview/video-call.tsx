@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,12 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
   // Audio capture - no blocking needed, server will handle it
   const { startCapture, stopCapture } = useAudioCapture(sendAudioData, () => false);
 
+  // Use ref to track the current isReady value for the async function
+  const isReadyRef = useRef(isReady);
+  useEffect(() => {
+    isReadyRef.current = isReady;
+  }, [isReady]);
+
   const handleStart = async () => {
     setIsStarting(true);
     try {
@@ -37,19 +43,37 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
       await connect();
 
       // Wait for the server to be ready before requesting permissions
-      // The isReady state will be set to true when server sends "ready" status
-      console.log('⏳ Waiting for server to be ready...');
+      console.log('⏳ Waiting for server to be ready...', { isReady: isReadyRef.current, isConnected });
 
-      // Poll for isReady status (it will be set by the WebSocket message handler)
-      const maxWaitTime = 60000; // 60 seconds max
-      const startTime = Date.now();
-      while (!isReady && Date.now() - startTime < maxWaitTime) {
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Check every 100ms
-      }
+      // Create a promise that resolves when isReady becomes true
+      const waitForReady = new Promise<void>((resolve, reject) => {
+        const maxWaitTime = 60000; // 60 seconds max
+        const startTime = Date.now();
 
-      if (!isReady) {
-        throw new Error('Server initialization timeout');
-      }
+        const checkReady = () => {
+          // Use ref to get current value
+          const currentIsReady = isReadyRef.current;
+          console.log('🔍 Checking ready status:', { isReady: currentIsReady, isConnected, statusMessage });
+
+          if (currentIsReady) {
+            console.log('✅ Server is ready!');
+            resolve();
+            return;
+          }
+
+          if (Date.now() - startTime > maxWaitTime) {
+            reject(new Error('Server initialization timeout'));
+            return;
+          }
+
+          // Check again in 100ms
+          setTimeout(checkReady, 100);
+        };
+
+        checkReady();
+      });
+
+      await waitForReady;
 
       console.log('✅ Server ready, requesting permissions...');
 

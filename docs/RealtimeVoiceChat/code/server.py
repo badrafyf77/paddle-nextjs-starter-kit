@@ -911,27 +911,28 @@ class TranscriptionCallbacks:
         """
         Sends the final (or best available) assistant answer to the client.
 
-        Constructs the full answer from quick and final parts if available.
-        If `forced` and no full answer exists, uses the last partial answer.
-        Cleans the text and sends it as 'final_assistant_answer' if not already sent.
+        Uses the complete text from self.assistant_answer which is updated by
+        on_partial_assistant_text callback with the full LLM response.
+        Falls back to pipeline manager's quick_answer + final_answer if needed.
 
         Args:
             forced: If True, attempts to send the last partial answer if no complete
                     final answer is available. Defaults to False.
         """
         final_answer = ""
-        # Access connection-specific manager state
-        if self.conn_state.pipeline_manager.is_valid_gen():
+        
+        # FIRST: Try to use self.assistant_answer which has the complete text
+        if self.assistant_answer:
+            final_answer = self.assistant_answer
+            logger.debug(f"🖥️✅ Using complete assistant_answer: '{final_answer[:100]}...'")
+        # FALLBACK: Use pipeline manager's quick_answer + final_answer
+        elif self.conn_state.pipeline_manager.is_valid_gen():
             final_answer = self.conn_state.pipeline_manager.running_generation.quick_answer + self.conn_state.pipeline_manager.running_generation.final_answer
+            logger.debug(f"🖥️✅ Using pipeline quick+final answer: '{final_answer[:100]}...'")
 
         if not final_answer: # Check if constructed answer is empty
-            # If forced, try using the last known partial answer from this connection
-            if forced and self.assistant_answer:
-                 final_answer = self.assistant_answer
-                 logger.warning(f"🖥️⚠️ Using partial answer as final (forced): '{final_answer}'")
-            else:
-                logger.warning(f"🖥️⚠️ Final assistant answer was empty, not sending.")
-                return# Nothing to send
+            logger.warning(f"🖥️⚠️ Final assistant answer was empty, not sending.")
+            return # Nothing to send
 
         logger.debug(f"🖥️✅ Attempting to send final answer: '{final_answer}' (Sent previously: {self.final_assistant_answer_sent})")
 
