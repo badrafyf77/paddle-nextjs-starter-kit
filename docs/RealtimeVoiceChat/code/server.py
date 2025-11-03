@@ -4,8 +4,19 @@ import logging
 from logsetup import setup_logging
 setup_logging(logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Clean logging helper - only show important events
+def log_event(emoji: str, message: str, level: str = "info"):
+    """Log important events in a clean, readable format"""
+    if level == "info":
+        logger.info(f"{emoji} {message}")
+    elif level == "warning":
+        logger.warning(f"{emoji} {message}")
+    elif level == "error":
+        logger.error(f"{emoji} {message}")
+
 if __name__ == "__main__":
-    logger.info("🖥️👋 Welcome to local real-time voice chat")
+    log_event("🎙️", "Voice Chat Server Starting...")
 
 from upsample_overlap import UpsampleOverlap
 from datetime import datetime
@@ -512,7 +523,7 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                 chunk = conn_state.pipeline_manager.running_generation.audio_chunks.get_nowait()
                 if chunk:
                     last_quick_answer_chunk = time.time()
-                    logger.info(f"🖥️🔊 got TTS chunk bytes={len(chunk)}")
+                    # TTS chunk received - no need to log every chunk
             except Empty:
                 final_expected = conn_state.pipeline_manager.running_generation.quick_answer_provided
                 audio_final_finished = conn_state.pipeline_manager.running_generation.audio_final_finished
@@ -520,7 +531,7 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
 
                 # Only send final answer when BOTH audio AND LLM are finished
                 if (not final_expected or audio_final_finished) and llm_finished:
-                    logger.info("🖥️🏁 Sending of TTS chunks and 'user request/assistant answer' cycle finished.")
+                    log_event("🏁", "Response complete")
                     callbacks.send_final_assistant_answer() # Callbacks method
 
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
@@ -676,8 +687,7 @@ class TranscriptionCallbacks:
             if sentence not in self.sent_sentences:
                 # This is a new sentence - send it as a separate bubble
                 self.sentence_counter += 1
-                logger.info(f"🖥️💬 Sending sentence bubble {self.sentence_counter}: {sentence[:60]}...")
-                
+                # Sentence sent - no need to log, already logged in on_partial_assistant_text
                 self.message_queue.put_nowait({
                     "type": "assistant_sentence",
                     "content": sentence,
@@ -820,7 +830,7 @@ class TranscriptionCallbacks:
         Args:
             txt: The final transcription text.
         """
-        logger.info(f"\n{Colors.apply('🖥️✅ FINAL USER REQUEST (STT Callback): ').green}{txt}")
+        log_event("👤", f"User said: \"{txt}\"")
         if not self.final_transcription: # Store it if not already set by on_before_final logic
              self.final_transcription = txt
 
@@ -859,7 +869,11 @@ class TranscriptionCallbacks:
         Args:
             txt: The partial assistant text.
         """
-        logger.info(f"{Colors.apply('🖥️💬 PARTIAL ASSISTANT ANSWER: ').green}{txt}")
+        # Only log when text changes significantly (not every token)
+        if not hasattr(self, '_last_logged_length') or len(txt) - self._last_logged_length > 50:
+            log_event("🤖", f"Assistant: {txt[:80]}{'...' if len(txt) > 80 else ''}")
+            self._last_logged_length = len(txt)
+        
         # Use connection-specific user_interrupted flag
         if not self.user_interrupted:
             self.assistant_answer = txt
@@ -876,7 +890,7 @@ class TranscriptionCallbacks:
         TTS streaming, sends stop/interruption messages to the client, aborts ongoing
         generation, sends any final assistant answer generated so far, and resets relevant state.
         """
-        logger.info(f"{Colors.ORANGE}🖥️🎙️ Recording started.{Colors.RESET} TTS Client Playing: {self.tts_client_playing}")
+        log_event("🎤", "User started speaking")
         # Use connection-specific tts_client_playing flag
         if self.tts_client_playing:
             self.tts_to_client = False # Stop server sending TTS
@@ -948,7 +962,7 @@ class TranscriptionCallbacks:
             cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer).strip()
 
             if cleaned_answer: # Ensure it's not empty after cleaning
-                logger.info(f"\n{Colors.apply('🖥️✅ FINAL ASSISTANT ANSWER (Sending): ').green}{cleaned_answer}")
+                log_event("✅", f"Complete response: \"{cleaned_answer}\"")
                 self.message_queue.put_nowait({
                     "type": "final_assistant_answer",
                     "content": cleaned_answer
@@ -985,7 +999,7 @@ async def websocket_endpoint(ws: WebSocket):
     """
     await ws.accept()
     connection_id = id(ws)  # Unique ID for this connection
-    logger.info(f"🖥️✅ Client connected via WebSocket (Connection ID: {connection_id})")
+    log_event("🔌", f"User connected (ID: {connection_id})")
 
     message_queue = asyncio.Queue()
     audio_chunks = asyncio.Queue()
@@ -999,9 +1013,9 @@ async def websocket_endpoint(ws: WebSocket):
     
     # Create DEDICATED pipeline manager for this connection
     # Each user gets their own isolated pipeline (LLM, TTS, history, etc.)
-    logger.info(f"🖥️🔧 Creating pipeline for connection {connection_id}...")
+    log_event("⚙️", "Initializing AI models...")
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    logger.info(f"🖥️✅ Pipeline ready for connection {connection_id}")
+    log_event("✅", "AI models ready")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
@@ -1009,7 +1023,7 @@ async def websocket_endpoint(ws: WebSocket):
         is_orpheus=TTS_START_ENGINE=="orpheus",
         pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
     )
-    logger.info(f"🖥️🎤 Created dedicated audio processor for connection {connection_id}")
+    log_event("🎧", "Audio system ready")
 
     # Create connection state holder
     class ConnectionState:
@@ -1052,7 +1066,7 @@ async def websocket_endpoint(ws: WebSocket):
         "status": "ready",
         "message": "Interview session ready! You can start speaking now."
     })
-    logger.info(f"🖥️✅ Connection {connection_id} is ready for audio")
+    log_event("🚀", "Interview session ready - user can speak now")
 
     try:
         # Wait for any task to complete (e.g., client disconnect)
@@ -1064,7 +1078,7 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.error(f"🖥️💥 {Colors.apply('ERROR').red} in WebSocket session {connection_id}: {repr(e)}")
     finally:
-        logger.info(f"🖥️🧹 Cleaning up connection {connection_id}...")
+        log_event("👋", f"User disconnected (ID: {connection_id})")
         
         # Clear this connection's history
         conn_state.conversation_history = []
