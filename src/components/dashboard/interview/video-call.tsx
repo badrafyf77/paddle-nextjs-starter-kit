@@ -33,7 +33,27 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
   const handleStart = async () => {
     setIsStarting(true);
     try {
+      // First, connect to the server
       await connect();
+
+      // Wait for the server to be ready before requesting permissions
+      // The isReady state will be set to true when server sends "ready" status
+      console.log('⏳ Waiting for server to be ready...');
+
+      // Poll for isReady status (it will be set by the WebSocket message handler)
+      const maxWaitTime = 60000; // 60 seconds max
+      const startTime = Date.now();
+      while (!isReady && Date.now() - startTime < maxWaitTime) {
+        await new Promise((resolve) => setTimeout(resolve, 100)); // Check every 100ms
+      }
+
+      if (!isReady) {
+        throw new Error('Server initialization timeout');
+      }
+
+      console.log('✅ Server ready, requesting permissions...');
+
+      // Now request audio/webcam permissions
       await startWebcam();
       await startCapture();
       setIsRecording(true);
@@ -145,7 +165,7 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
                   {isStarting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Starting...
+                      {isConnected && !isReady ? statusMessage || 'Initializing...' : 'Starting...'}
                     </>
                   ) : (
                     <>

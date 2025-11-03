@@ -516,8 +516,10 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
             except Empty:
                 final_expected = conn_state.pipeline_manager.running_generation.quick_answer_provided
                 audio_final_finished = conn_state.pipeline_manager.running_generation.audio_final_finished
+                llm_finished = conn_state.pipeline_manager.running_generation.llm_finished
 
-                if not final_expected or audio_final_finished:
+                # Only send final answer when BOTH audio AND LLM are finished
+                if (not final_expected or audio_final_finished) and llm_finished:
                     logger.info("🖥️🏁 Sending of TTS chunks and 'user request/assistant answer' cycle finished.")
                     callbacks.send_final_assistant_answer() # Callbacks method
 
@@ -1004,14 +1006,6 @@ async def websocket_endpoint(ws: WebSocket):
         pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
     )
     logger.info(f"🖥️🎤 Created dedicated audio processor for connection {connection_id}")
-    
-    # Send "ready" status to client
-    await ws.send_json({
-        "type": "status",
-        "status": "ready",
-        "message": "Interview session ready! You can start speaking now."
-    })
-    logger.info(f"🖥️✅ Connection {connection_id} is ready for audio")
 
     # Create connection state holder
     class ConnectionState:
@@ -1047,6 +1041,14 @@ async def websocket_endpoint(ws: WebSocket):
         asyncio.create_task(send_text_messages(ws, message_queue)),
         asyncio.create_task(send_tts_chunks(conn_state, message_queue, callbacks)),
     ]
+    
+    # NOW send "ready" status - everything is initialized and tasks are running
+    await ws.send_json({
+        "type": "status",
+        "status": "ready",
+        "message": "Interview session ready! You can start speaking now."
+    })
+    logger.info(f"🖥️✅ Connection {connection_id} is ready for audio")
 
     try:
         # Wait for any task to complete (e.g., client disconnect)
