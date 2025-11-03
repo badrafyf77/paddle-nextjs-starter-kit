@@ -154,22 +154,7 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    # Pre-warm the LLM to measure inference time, but don't share the instance
-    # Each connection needs its own LLM instance to avoid state conflicts
-    logger.info("🖥️🔥 Pre-warming LLM to measure inference time (this may take a minute)...")
-    temp_pipeline = SpeechPipelineManager(**PIPELINE_CONFIG)
-    
-    # Store ONLY the inference time measurement, not the LLM instance itself
-    # Each connection will create its own LLM/TTS/STT to avoid state conflicts
-    app.state.LLM_InferenceTime = temp_pipeline.llm_inference_time
-    
-    # Clean up the temporary pipeline
-    temp_pipeline.shutdown()
-    del temp_pipeline
-    
     logger.info("🖥️✅ Server initialized - ready for connections")
-    
-    # Note: Each connection creates its own isolated pipeline to avoid conflicts
 
     yield
 
@@ -454,8 +439,6 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
         prev_status = None
 
         while True:
-            await asyncio.sleep(0.001) # Yield control
-
             # Use connection-specific interruption_time via callbacks
             if conn_state.audio_processor.interrupted and callbacks.interruption_time and time.time() - callbacks.interruption_time > 2.0:
                 conn_state.audio_processor.interrupted = False
@@ -502,26 +485,26 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
 
             # Use connection-specific state via callbacks
             if not callbacks.tts_to_client:
-                await asyncio.sleep(0.001)
                 log_status()
+                await asyncio.sleep(0.001)  # Only sleep when waiting
                 continue
 
             if not conn_state.pipeline_manager.running_generation:
-                await asyncio.sleep(0.001)
                 log_status()
+                await asyncio.sleep(0.001)  # Only sleep when waiting
                 continue
 
             if conn_state.pipeline_manager.running_generation.abortion_started:
-                await asyncio.sleep(0.001)
                 log_status()
+                await asyncio.sleep(0.001)  # Only sleep when waiting
                 continue
 
             if not conn_state.pipeline_manager.running_generation.audio_quick_finished:
                 conn_state.pipeline_manager.running_generation.tts_quick_allowed_event.set()
 
             if not conn_state.pipeline_manager.running_generation.quick_answer_first_chunk_ready:
-                await asyncio.sleep(0.001)
                 log_status()
+                await asyncio.sleep(0.001)  # Only sleep when waiting
                 continue
 
             chunk = None
@@ -544,10 +527,11 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     callbacks.tts_chunk_sent = False # Reset via callbacks
                     callbacks.reset_state() # Reset connection state via callbacks
 
-                await asyncio.sleep(0.001)
                 log_status()
+                await asyncio.sleep(0.001)  # Only sleep when waiting
                 continue
 
+            # Process chunk immediately without sleeping
             base64_chunk = conn_state.upsampler.get_base64_chunk(chunk)
             logger.debug(f"🖥️🔊 sending tts_chunk b64_len={len(base64_chunk)}")
             message_queue.put_nowait({
@@ -1008,15 +992,10 @@ async def websocket_endpoint(ws: WebSocket):
     })
     
     # Create DEDICATED pipeline manager for this connection
-    # Each connection gets its own isolated pipeline (LLM, TTS, history, etc.)
-    # This ensures no state conflicts between concurrent users
+    # Each user gets their own isolated pipeline (LLM, TTS, history, etc.)
+    logger.info(f"🖥️🔧 Creating pipeline for connection {connection_id}...")
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    
-    # Use the pre-measured inference time to avoid re-measuring
-    pipeline_manager.llm_inference_time = app.state.LLM_InferenceTime
-    pipeline_manager.full_output_pipeline_latency = pipeline_manager.llm_inference_time + pipeline_manager.audio.tts_inference_time
-    
-    logger.info(f"🖥️🔧 Created isolated pipeline for connection {connection_id}")
+    logger.info(f"🖥️✅ Pipeline ready for connection {connection_id}")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(

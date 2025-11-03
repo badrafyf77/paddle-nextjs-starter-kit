@@ -80,6 +80,7 @@ class AudioProcessor:
             self,
             engine: str = START_ENGINE,
             orpheus_model: str = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf",
+            skip_prewarm: bool = False,
         ) -> None:
         """
         Initializes the AudioProcessor with a specific TTS engine.
@@ -160,64 +161,69 @@ class AudioProcessor:
             self.engine.set_stream_chunk_size(QUICK_ANSWER_STREAM_CHUNK_SIZE)
             self.current_stream_chunk_size = QUICK_ANSWER_STREAM_CHUNK_SIZE
 
-        # Prewarm the engine
-        self.stream.feed("prewarm")
-        play_kwargs = dict(
-            log_synthesized_text=False, # Don't log prewarm text
-            muted=True,
-            fast_sentence_fragment=False,
-            comma_silence_duration=self.silence.comma,
-            sentence_silence_duration=self.silence.sentence,
-            default_silence_duration=self.silence.default,
-            force_first_fragment_after_words=999999, # Effectively disable this
-        )
-        self.stream.play(**play_kwargs) # Synchronous play for prewarm
-        # Wait for prewarm to finish (indicated by on_audio_stream_stop)
-        while self.stream.is_playing():
-            time.sleep(0.01)
-        self.finished_event.wait() # Wait for stop callback
-        self.finished_event.clear()
+        if not skip_prewarm:
+            # Prewarm the engine
+            self.stream.feed("prewarm")
+            play_kwargs = dict(
+                log_synthesized_text=False, # Don't log prewarm text
+                muted=True,
+                fast_sentence_fragment=False,
+                comma_silence_duration=self.silence.comma,
+                sentence_silence_duration=self.silence.sentence,
+                default_silence_duration=self.silence.default,
+                force_first_fragment_after_words=999999, # Effectively disable this
+            )
+            self.stream.play(**play_kwargs) # Synchronous play for prewarm
+            # Wait for prewarm to finish (indicated by on_audio_stream_stop)
+            while self.stream.is_playing():
+                time.sleep(0.01)
+            self.finished_event.wait() # Wait for stop callback
+            self.finished_event.clear()
 
-        # Measure Time To First Audio (TTFA)
-        start_time = time.time()
-        ttfa = None
-        def on_audio_chunk_ttfa(chunk: bytes):
-            nonlocal ttfa
-            if ttfa is None:
-                ttfa = time.time() - start_time
-                logger.debug(f"👄⏱️ TTFA measurement first chunk arrived, TTFA: {ttfa:.2f}s.")
+            # Measure Time To First Audio (TTFA)
+            start_time = time.time()
+            ttfa = None
+            def on_audio_chunk_ttfa(chunk: bytes):
+                nonlocal ttfa
+                if ttfa is None:
+                    ttfa = time.time() - start_time
+                    logger.debug(f"👄⏱️ TTFA measurement first chunk arrived, TTFA: {ttfa:.2f}s.")
 
-        self.stream.feed("This is a test sentence to measure the time to first audio chunk.")
-        play_kwargs_ttfa = dict(
-            on_audio_chunk=on_audio_chunk_ttfa,
-            log_synthesized_text=False, # Don't log test sentence
-            muted=True,
-            fast_sentence_fragment=False,
-            comma_silence_duration=self.silence.comma,
-            sentence_silence_duration=self.silence.sentence,
-            default_silence_duration=self.silence.default,
-            force_first_fragment_after_words=999999,
-        )
-        self.stream.play_async(**play_kwargs_ttfa)
+            self.stream.feed("This is a test sentence to measure the time to first audio chunk.")
+            play_kwargs_ttfa = dict(
+                on_audio_chunk=on_audio_chunk_ttfa,
+                log_synthesized_text=False, # Don't log test sentence
+                muted=True,
+                fast_sentence_fragment=False,
+                comma_silence_duration=self.silence.comma,
+                sentence_silence_duration=self.silence.sentence,
+                default_silence_duration=self.silence.default,
+                force_first_fragment_after_words=999999,
+            )
+            self.stream.play_async(**play_kwargs_ttfa)
 
-        # Wait until the first chunk arrives or stream finishes
-        while ttfa is None and (self.stream.is_playing() or not self.finished_event.is_set()):
-            time.sleep(0.01)
-        self.stream.stop() # Ensure stream stops cleanly
+            # Wait until the first chunk arrives or stream finishes
+            while ttfa is None and (self.stream.is_playing() or not self.finished_event.is_set()):
+                time.sleep(0.01)
+            self.stream.stop() # Ensure stream stops cleanly
 
-        # Wait for stop callback if it hasn't fired yet
-        if not self.finished_event.is_set():
-            self.finished_event.wait(timeout=2.0) # Add timeout for safety
-        self.finished_event.clear()
+            # Wait for stop callback if it hasn't fired yet
+            if not self.finished_event.is_set():
+                self.finished_event.wait(timeout=2.0) # Add timeout for safety
+            self.finished_event.clear()
 
-        if ttfa is not None:
-            logger.debug(f"👄⏱️ TTFA measurement complete. TTFA: {ttfa:.2f}s.")
-            self.tts_inference_time = ttfa * 1000  # Store as ms
+            if ttfa is not None:
+                logger.debug(f"👄⏱️ TTFA measurement complete. TTFA: {ttfa:.2f}s.")
+                self.tts_inference_time = ttfa * 1000  # Store as ms
+            else:
+                logger.warning("👄⚠️ TTFA measurement failed (no audio chunk received).")
+                self.tts_inference_time = 0
+
+            logger.info(f"👄 TTFA measured ms={self.tts_inference_time}")
         else:
-            logger.warning("👄⚠️ TTFA measurement failed (no audio chunk received).")
-            self.tts_inference_time = 0
-
-        logger.info(f"👄 TTFA measured ms={self.tts_inference_time}")
+            # Skip prewarming - use default estimate
+            self.tts_inference_time = 130.0  # Default estimate in ms for Kokoro
+            logger.debug(f"👄⚡ Skipped TTS prewarm (fast init)")
 
         # Callbacks to be set externally if needed
         self.on_first_audio_chunk_synthesize: Optional[Callable[[], None]] = None

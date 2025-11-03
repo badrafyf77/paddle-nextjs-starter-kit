@@ -132,6 +132,8 @@ class SpeechPipelineManager:
             bedrock_agent_id: Optional[str] = None,
             bedrock_agent_alias_id: Optional[str] = None,
             bedrock_region: str = "us-west-2",
+            # Performance optimization
+            skip_prewarm: bool = False,
         ):
         """
         Initializes the SpeechPipelineManager.
@@ -167,7 +169,8 @@ class SpeechPipelineManager:
         # --- Instance Dependencies ---
         self.audio = AudioProcessor(
             engine=self.tts_engine,
-            orpheus_model=self.orpheus_model
+            orpheus_model=self.orpheus_model,
+            skip_prewarm=skip_prewarm
         )
         self.audio.on_first_audio_chunk_synthesize = self.on_first_audio_chunk_synthesize
         self.text_similarity = TextSimilarity(focus='end', n_words=5)
@@ -196,9 +199,14 @@ class SpeechPipelineManager:
                 system_prompt=self.system_prompt,
                 no_think=no_think,
             )
-            self.llm.prewarm()
-            self.llm_inference_time = self.llm.measure_inference_time()
-            logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
+            if not skip_prewarm:
+                self.llm.prewarm()
+                self.llm_inference_time = self.llm.measure_inference_time()
+                logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
+            else:
+                # Skip prewarming - models already loaded, use default time
+                self.llm_inference_time = 250.0  # Default estimate in ms
+                logger.debug(f"🗣️🧠⚡ Skipped LLM prewarm (fast init)")
 
         # --- State ---
         self.history = []

@@ -33,7 +33,7 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     # VAD and segmentation tuning
     "silero_sensitivity": 0.25,
     "webrtc_sensitivity": 3,
-    "post_speech_silence_duration": 0.7,  # 0.4 seconds - more responsive
+    "post_speech_silence_duration": 0.7,  # 0.7 seconds - more responsive
     "min_length_of_recording": 0.5,  # Minimum speech length
     "min_gap_between_recordings": 0.05,
     "enable_realtime_transcription": True,
