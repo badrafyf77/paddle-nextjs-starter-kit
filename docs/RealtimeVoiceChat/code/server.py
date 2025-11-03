@@ -671,8 +671,9 @@ class TranscriptionCallbacks:
                     complete_sentences.append(sentence)
         
         # Send any new sentences that haven't been sent yet
-        for i, sentence in enumerate(complete_sentences):
-            if i >= len(self.sent_sentences):
+        for sentence in complete_sentences:
+            # Check if this exact sentence was already sent (avoid duplicates)
+            if sentence not in self.sent_sentences:
                 # This is a new sentence - send it as a separate bubble
                 self.sentence_counter += 1
                 logger.info(f"🖥️💬 Sending sentence bubble {self.sentence_counter}: {sentence[:60]}...")
@@ -684,6 +685,8 @@ class TranscriptionCallbacks:
                 })
                 
                 self.sent_sentences.append(sentence)
+            else:
+                logger.debug(f"🖥️💬 Skipping duplicate sentence: {sentence[:60]}...")
 
     def _abort_worker(self):
         """Background thread worker to check for abort conditions based on partial text."""
