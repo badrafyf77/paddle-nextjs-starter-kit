@@ -531,7 +531,8 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
 
                 # Only send final answer when BOTH audio AND LLM are finished
                 if (not final_expected or audio_final_finished) and llm_finished:
-                    log_event("🏁", "Response complete")
+                    # Small delay to ensure on_partial_assistant_text callback has been called
+                    await asyncio.sleep(0.1)
                     callbacks.send_final_assistant_answer() # Callbacks method
 
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
@@ -583,17 +584,21 @@ class TranscriptionCallbacks:
     `message_queue` and manages interaction logic like interruptions and final answer delivery.
     It also includes a threaded worker to handle abort checks based on partial transcription.
     """
-    def __init__(self, conn_state, message_queue: asyncio.Queue):
+    def __init__(self, conn_state, message_queue: asyncio.Queue, user_id: str):
         """
         Initializes the TranscriptionCallbacks instance for a WebSocket connection.
 
         Args:
             conn_state: The connection-specific state object containing pipeline_manager and audio_processor.
             message_queue: An asyncio queue for sending messages back to the client.
+            user_id: Short identifier for this user (for logging).
         """
         self.conn_state = conn_state
         self.message_queue = message_queue
+        self.user_id = user_id
         self.final_transcription = ""
+        self.last_user_speech_time = 0  # Track when user last spoke
+        self.user_speech_received = False  # Track if user spoke
         self.abort_text = ""
         self.last_abort_text = ""
 
@@ -830,7 +835,10 @@ class TranscriptionCallbacks:
         Args:
             txt: The final transcription text.
         """
-        log_event("👤", f"User said: \"{txt}\"")
+        log_event("👤", f"[User {self.user_id}] Said: \"{txt}\"")
+        self.last_user_speech_time = time.time()  # Track when user spoke
+        self.user_speech_received = True  # Flag that user spoke
+        
         if not self.final_transcription: # Store it if not already set by on_before_final logic
              self.final_transcription = txt
 
@@ -871,8 +879,14 @@ class TranscriptionCallbacks:
         """
         # Only log when text changes significantly (not every token)
         if not hasattr(self, '_last_logged_length') or len(txt) - self._last_logged_length > 50:
-            log_event("🤖", f"Assistant: {txt[:80]}{'...' if len(txt) > 80 else ''}")
+            log_event("🤖", f"[User {self.user_id}] Assistant: {txt[:80]}{'...' if len(txt) > 80 else ''}")
             self._last_logged_length = len(txt)
+            
+            # Check if this is the first response after user speech
+            if hasattr(self, 'user_speech_received') and self.user_speech_received and len(txt) > 20:
+                response_time = time.time() - self.last_user_speech_time
+                log_event("⏱️", f"[User {self.user_id}] Response started ({response_time:.1f}s after user spoke)")
+                self.user_speech_received = False  # Reset flag
         
         # Use connection-specific user_interrupted flag
         if not self.user_interrupted:
@@ -890,7 +904,7 @@ class TranscriptionCallbacks:
         TTS streaming, sends stop/interruption messages to the client, aborts ongoing
         generation, sends any final assistant answer generated so far, and resets relevant state.
         """
-        log_event("🎤", "User started speaking")
+        log_event("🎤", f"[User {self.user_id}] Started speaking")
         # Use connection-specific tts_client_playing flag
         if self.tts_client_playing:
             self.tts_to_client = False # Stop server sending TTS
@@ -962,7 +976,14 @@ class TranscriptionCallbacks:
             cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer).strip()
 
             if cleaned_answer: # Ensure it's not empty after cleaning
-                log_event("✅", f"Complete response: \"{cleaned_answer}\"")
+                # Check if response took too long (potential issue)
+                if hasattr(self, 'last_user_speech_time') and self.last_user_speech_time > 0:
+                    response_time = time.time() - self.last_user_speech_time
+                    if response_time > 10:
+                        log_event("⚠️", f"[User {self.user_id}] Slow response ({response_time:.1f}s)", "warning")
+                
+                log_event("✅", f"[User {self.user_id}] Complete: \"{cleaned_answer[:100]}{'...' if len(cleaned_answer) > 100 else ''}\"")
+                self.user_speech_received = False  # Reset flag after response
                 self.message_queue.put_nowait({
                     "type": "final_assistant_answer",
                     "content": cleaned_answer
@@ -999,7 +1020,9 @@ async def websocket_endpoint(ws: WebSocket):
     """
     await ws.accept()
     connection_id = id(ws)  # Unique ID for this connection
-    log_event("🔌", f"User connected (ID: {connection_id})")
+    # Create a short, readable user ID (last 4 digits)
+    user_id = str(connection_id)[-4:]
+    log_event("🔌", f"[User {user_id}] Connected")
 
     message_queue = asyncio.Queue()
     audio_chunks = asyncio.Queue()
@@ -1013,9 +1036,9 @@ async def websocket_endpoint(ws: WebSocket):
     
     # Create DEDICATED pipeline manager for this connection
     # Each user gets their own isolated pipeline (LLM, TTS, history, etc.)
-    log_event("⚙️", "Initializing AI models...")
+    log_event("⚙️", f"[User {user_id}] Initializing AI models...")
     pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    log_event("✅", "AI models ready")
+    log_event("✅", f"[User {user_id}] AI models ready")
     
     # Create DEDICATED audio processor for this connection
     audio_processor = AudioInputProcessor(
@@ -1023,7 +1046,7 @@ async def websocket_endpoint(ws: WebSocket):
         is_orpheus=TTS_START_ENGINE=="orpheus",
         pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
     )
-    log_event("🎧", "Audio system ready")
+    log_event("🎧", f"[User {user_id}] Audio system ready")
 
     # Create connection state holder
     class ConnectionState:
@@ -1036,7 +1059,7 @@ async def websocket_endpoint(ws: WebSocket):
     conn_state = ConnectionState()
 
     # Set up callback manager with connection-specific state
-    callbacks = TranscriptionCallbacks(conn_state, message_queue)
+    callbacks = TranscriptionCallbacks(conn_state, message_queue, user_id)
 
     # Assign callbacks to the shared AudioInputProcessor
     audio_processor.realtime_callback = callbacks.on_partial
@@ -1066,7 +1089,7 @@ async def websocket_endpoint(ws: WebSocket):
         "status": "ready",
         "message": "Interview session ready! You can start speaking now."
     })
-    log_event("🚀", "Interview session ready - user can speak now")
+    log_event("🚀", f"[User {user_id}] Interview session ready - user can speak now")
 
     try:
         # Wait for any task to complete (e.g., client disconnect)
@@ -1078,7 +1101,7 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.error(f"🖥️💥 {Colors.apply('ERROR').red} in WebSocket session {connection_id}: {repr(e)}")
     finally:
-        log_event("👋", f"User disconnected (ID: {connection_id})")
+        log_event("👋", f"[User {user_id}] Disconnected")
         
         # Clear this connection's history
         conn_state.conversation_history = []
