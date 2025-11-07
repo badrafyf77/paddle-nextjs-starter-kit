@@ -202,7 +202,11 @@ class SpeechPipelineManager:
             if not skip_prewarm:
                 self.llm.prewarm()
                 self.llm_inference_time = self.llm.measure_inference_time()
-                logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
+                if self.llm_inference_time is not None:
+                    logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
+                else:
+                    logger.warning(f"🗣️🧠⚠️ LLM inference time measurement failed, using default")
+                    self.llm_inference_time = 250.0  # Default estimate in ms
             else:
                 # Skip prewarming - models already loaded, use default time
                 self.llm_inference_time = 250.0  # Default estimate in ms
