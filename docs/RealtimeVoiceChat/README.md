@@ -4,24 +4,33 @@ Real-time AI voice chat with streaming LLM and TTS.
 
 ## 🚀 Quick Start
 
-### Default: AWS Bedrock Agent
+### Default: vLLM (Multi-User Optimized)
 
 ```bash
-# 1. Configure AWS credentials
+# 1. Copy environment config
 cp .env.example .env
-# Edit .env with your AWS credentials and Bedrock Agent IDs
 
-# 2. Run with Docker
-docker-compose up -d
+# 2. Run with Docker (vLLM + Voice Chat)
+docker-compose -f docker-compose.vllm.yml up -d
 
 # 3. Open browser
-open http://localhost:8000
+open http://localhost:8080
 ```
 
-### Alternative: Local Ollama
+**Note:** First run will download the model (~6GB). vLLM handles multiple concurrent users efficiently with continuous batching.
+
+### Alternative: AWS Bedrock Agent
 
 ```bash
-# Use Ollama instead of Bedrock
+# 1. Configure AWS credentials in .env
+# 2. Run with Docker
+docker-compose up -d
+# 3. Open http://localhost:8000
+```
+
+### Alternative: Local Ollama (Single User)
+
+```bash
 docker-compose -f docker-compose.ollama.yml up -d
 ```
 
@@ -34,12 +43,13 @@ docker-compose -f docker-compose.ollama.yml up -d
 
 ## 🎛️ LLM Providers
 
-| Provider              | Setup           | Use Case             |
-| --------------------- | --------------- | -------------------- |
-| **Bedrock** (default) | AWS credentials | Production, scalable |
-| **Ollama**            | Local GPU       | Development, offline |
-| **OpenAI**            | API key         | Quick testing        |
-| **LM Studio**         | Local server    | Custom models        |
+| Provider           | Setup           | Use Case                     | Multi-User   |
+| ------------------ | --------------- | ---------------------------- | ------------ |
+| **vLLM** (default) | Local GPU       | Multi-user, high performance | ✅ Excellent |
+| **Bedrock**        | AWS credentials | Production, managed          | ✅ Yes       |
+| **Ollama**         | Local GPU       | Development, single user     | ⚠️ Limited   |
+| **OpenAI**         | API key         | Quick testing                | ✅ Yes       |
+| **LM Studio**      | Local server    | Custom models                | ⚠️ Limited   |
 
 Switch providers via `LLM_PROVIDER` environment variable.
 
@@ -56,8 +66,12 @@ User Voice → STT (Whisper) → LLM (Bedrock/Ollama) → TTS (Kokoro) → Audio
 ### Environment Variables
 
 ```bash
-# LLM Provider
-LLM_PROVIDER=bedrock  # or: ollama, openai, lmstudio
+# LLM Provider (default: vllm)
+LLM_PROVIDER=vllm  # or: bedrock, ollama, openai, lmstudio
+
+# vLLM (default) - Best for multiple concurrent users
+VLLM_BASE_URL=http://vllm:8000/v1  # Use 'vllm' in Docker, 'localhost' for local
+LLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
 
 # Bedrock (if LLM_PROVIDER=bedrock)
 BEDROCK_AGENT_ID=your_agent_id
@@ -65,7 +79,7 @@ BEDROCK_AGENT_ALIAS_ID=your_alias_id
 AWS_ACCESS_KEY_ID=your_key
 AWS_SECRET_ACCESS_KEY=your_secret
 
-# Ollama (if LLM_PROVIDER=ollama)
+# Ollama (if LLM_PROVIDER=ollama) - Single user only
 OLLAMA_BASE_URL=http://ollama:11434
 LLM_MODEL=llama3.2:latest
 ```
@@ -74,12 +88,13 @@ See [`.env.example`](.env.example) for all options.
 
 ## 📦 Docker Images
 
-| Setup       | Size    | What's Included    |
-| ----------- | ------- | ------------------ |
-| **Bedrock** | ~5GB    | App + TTS (no LLM) |
-| **Ollama**  | ~7-10GB | App + TTS + Ollama |
+| Setup       | Size    | What's Included    | Multi-User   |
+| ----------- | ------- | ------------------ | ------------ |
+| **vLLM**    | ~8-12GB | App + TTS + vLLM   | ✅ Excellent |
+| **Bedrock** | ~5GB    | App + TTS (no LLM) | ✅ Yes       |
+| **Ollama**  | ~7-10GB | App + TTS + Ollama | ⚠️ Limited   |
 
-See [`code/DOCKER_AND_BEDROCK.md`](code/DOCKER_AND_BEDROCK.md) for optimization tips.
+vLLM uses continuous batching for efficient multi-user handling.
 
 ## 🎨 Frontend
 

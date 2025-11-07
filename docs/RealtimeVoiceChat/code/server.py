@@ -46,8 +46,8 @@ TTS_ORPHEUS_MODEL = "Orpheus_3B-1BaseGGUF/mOrpheus_3B-1Base_Q4_K_M.gguf"
 TTS_ORPHEUS_MODEL = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf"
 
 # LLM Configuration - Can be overridden by environment variables
-LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # Options: "ollama", "openai", "lmstudio", "bedrock"
-LLM_START_MODEL = os.getenv("LLM_MODEL", "llama3.2:latest")
+LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "vllm")  # Options: "vllm", "ollama", "openai", "lmstudio", "bedrock"
+LLM_START_MODEL = os.getenv("LLM_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
 
 # Bedrock-specific configuration (required when LLM_START_PROVIDER="bedrock")
 BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "VUEHUL2HDK")
