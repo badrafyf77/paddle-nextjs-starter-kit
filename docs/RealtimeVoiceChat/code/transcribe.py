@@ -25,7 +25,7 @@ START_STT_SERVER = False # Set to True to use the client/server version of Realt
 DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "use_microphone": False,
     "spinner": False,
-    # Use a slightly larger model for better accuracy (adjust if GPU is weak)
+    # Use medium model for better accuracy (vLLM configured to use only 50% GPU)
     "model": "medium.en",
     "realtime_model_type": "medium.en",
     "use_main_model_for_realtime": True,

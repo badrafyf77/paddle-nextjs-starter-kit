@@ -48,7 +48,7 @@ services:
       - --max-model-len
       - '4096'
       - --gpu-memory-utilization
-      - '0.9'
+      - '0.5' # Use only 50% GPU memory (~12GB) to leave room for TTS/Whisper/Turn detection
       # Multi-user optimizations
       - --max-num-seqs
       - '32' # Handle up to 32 concurrent requests
