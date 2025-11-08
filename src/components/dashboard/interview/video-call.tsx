@@ -22,8 +22,17 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
   const [isRecording, setIsRecording] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
-  const { isConnected, isReady, statusMessage, messages, connect, disconnect, clearHistory, sendAudioData } =
-    useWebSocket(serverUrl);
+  const {
+    isConnected,
+    isReady,
+    statusMessage,
+    messages,
+    connect,
+    disconnect,
+    clearHistory,
+    sendAudioData,
+    editMessage,
+  } = useWebSocket(serverUrl);
 
   const { stream: webcamStream, startWebcam, stopWebcam, error: webcamError } = useWebcam();
 
@@ -173,7 +182,7 @@ export function VideoCall({ candidateName, interviewTitle, serverUrl, onEnd }: V
               <CardTitle className="text-lg">Live Transcript</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 min-h-0 p-0">
-              <TranscriptPanel messages={messages} />
+              <TranscriptPanel messages={messages} onEditMessage={editMessage} />
             </CardContent>
           </Card>
         </div>

@@ -161,27 +161,43 @@ export function useWebSocket(serverUrl: string) {
 
           if (lastAssistantIndex !== -1) {
             const lastMessage = prev[lastAssistantIndex];
+            const trimmedContent = content.trim();
 
-            // Check if this sentence was already added (prevent duplicates)
-            if (lastMessage.content.includes(content)) {
+            // Normalize text for comparison (remove punctuation, lowercase, trim spaces)
+            const normalizeText = (text: string) =>
+              text
+                .toLowerCase()
+                .replace(/[.!?,;:]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const normalizedNewSentence = normalizeText(trimmedContent);
+            const normalizedExisting = normalizeText(lastMessage.content);
+
+            // Check if this sentence is already in the content (fuzzy match)
+            if (normalizedExisting.includes(normalizedNewSentence)) {
+              console.log('⚠️ Duplicate sentence detected (fuzzy match), skipping:', trimmedContent);
+              return prev;
+            }
+
+            // Also check if the new sentence is a substring of what we already have
+            if (normalizedNewSentence.length > 10 && normalizedExisting.includes(normalizedNewSentence)) {
+              console.log('⚠️ Sentence already included in existing content, skipping:', trimmedContent);
               return prev;
             }
 
             // Append to existing partial assistant message
             const updated = [...prev];
-            const separator =
-              lastMessage.content.endsWith('.') ||
-              lastMessage.content.endsWith('!') ||
-              lastMessage.content.endsWith('?')
-                ? ' '
-                : ' ';
+            const separator = lastMessage.content ? ' ' : '';
             updated[lastAssistantIndex] = {
               ...updated[lastAssistantIndex],
               content: updated[lastAssistantIndex].content + separator + content,
             };
+            console.log('✅ Added sentence to existing message:', content);
             return updated;
           } else {
             // Create new partial assistant message
+            console.log('✅ Created new assistant message with sentence:', content);
             return [
               ...prev,
               {
@@ -197,21 +213,31 @@ export function useWebSocket(serverUrl: string) {
         break;
 
       case 'partial_assistant_answer':
+        // Create a placeholder message that will be replaced by sentences
+        // This ensures we have a message container ready
         setMessages((prev) => {
-          const filtered = prev.filter((m) => m.type !== 'partial' || m.role !== 'assistant');
-          if (content?.trim()) {
+          if (!content?.trim()) return prev;
+
+          // Check if there's already a partial assistant message
+          const hasPartialAssistant = prev.some((m) => m.role === 'assistant' && m.type === 'partial');
+
+          if (!hasPartialAssistant) {
+            // Create empty placeholder - sentences will fill it
+            console.log('✅ Created placeholder assistant message (will be filled by sentences)');
             return [
-              ...filtered,
+              ...prev,
               {
-                id: `partial-assistant-${Date.now()}`,
+                id: `assistant-${Date.now()}`,
                 role: 'assistant' as const,
-                content,
+                content: '', // Empty - sentences will populate this
                 type: 'partial' as const,
                 timestamp: Date.now(),
               },
             ];
+          } else {
+            console.log('ℹ️ Partial assistant message already exists, skipping partial_answer');
+            return prev;
           }
-          return filtered;
         });
         break;
 
@@ -283,6 +309,39 @@ export function useWebSocket(serverUrl: string) {
     }
   }, []);
 
+  const editMessage = useCallback((messageId: string, newContent: string) => {
+    // Update the message locally
+    setMessages((prev) => {
+      const messageIndex = prev.findIndex((m) => m.id === messageId);
+      if (messageIndex === -1) return prev;
+
+      const updated = [...prev];
+      updated[messageIndex] = {
+        ...updated[messageIndex],
+        content: newContent,
+      };
+
+      // Remove all assistant messages after this user message
+      const assistantMessagesToRemove = updated.slice(messageIndex + 1).filter((m) => m.role === 'assistant');
+      const filteredMessages = updated.filter((m, idx) => {
+        if (idx <= messageIndex) return true;
+        return m.role !== 'assistant';
+      });
+
+      return filteredMessages;
+    });
+
+    // Send the corrected message to the server
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'edit_user_message',
+          content: newContent,
+        }),
+      );
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       disconnect();
@@ -299,6 +358,7 @@ export function useWebSocket(serverUrl: string) {
     clearHistory,
     setSpeed,
     sendAudioData,
+    editMessage,
     isTTSPlaying,
   };
 }

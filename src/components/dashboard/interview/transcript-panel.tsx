@@ -7,9 +7,10 @@ import type { Message } from '@/lib/interview.types';
 
 interface TranscriptPanelProps {
   messages: Message[];
+  onEditMessage?: (messageId: string, newContent: string) => void;
 }
 
-export function TranscriptPanel({ messages }: TranscriptPanelProps) {
+export function TranscriptPanel({ messages, onEditMessage }: TranscriptPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -58,7 +59,7 @@ export function TranscriptPanel({ messages }: TranscriptPanelProps) {
             </div>
           </div>
         ) : (
-          messages.map((message) => <MessageBubble key={message.id} message={message} />)
+          messages.map((message) => <MessageBubble key={message.id} message={message} onEdit={onEditMessage} />)
         )}
       </div>
     </div>
