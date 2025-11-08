@@ -113,6 +113,7 @@ class TranscriptionProcessor:
             tts_allowed_event: Optional[threading.Event] = None, # Note: This seems unused in the original code provided
             pipeline_latency: float = 0.5,
             recorder_config: Optional[Dict[str, Any]] = None, # Allow passing custom config
+            shared_recorder: Optional[Any] = None, # NEW: Accept shared recorder instance
     ) -> None:
         """
         Initializes the TranscriptionProcessor.
@@ -175,7 +176,15 @@ class TranscriptionProcessor:
                 pipeline_latency=pipeline_latency
             )
 
-        self._create_recorder()
+        # NEW: Use shared recorder if provided, otherwise create new one
+        if shared_recorder is not None:
+            logger.info("👂♻️ Using shared recorder instance")
+            self.recorder = shared_recorder
+            self._setup_recorder_callbacks()
+        else:
+            logger.info("👂🆕 Creating new recorder instance")
+            self._create_recorder()
+        
         self._start_silence_monitor()
 
     # --- Recorder Parameter Abstraction ---
@@ -653,6 +662,79 @@ class TranscriptionProcessor:
         except Exception as e:
              logger.error(f"👂💥 Error getting audio copy: {e}", exc_info=True)
              return self.last_audio_copy # Return last known on error
+
+    def _setup_recorder_callbacks(self) -> None:
+        """
+        Sets up callbacks on an existing recorder instance.
+        Used when sharing a recorder across connections.
+        """
+        if not self.recorder:
+            logger.warning("👂⚠️ Cannot setup callbacks: No recorder instance available.")
+            return
+        
+        # Define callbacks locally to capture `self`
+        def start_silence_detection():
+            """Callback triggered when recorder detects start of silence (end of speech)."""
+            self.set_silence(True)
+            recorder_silence_start = self._get_recorder_param("speech_end_silence_start", None)
+            self.silence_time = recorder_silence_start if recorder_silence_start else time.time()
+            logger.debug(f"👂🤫 Silence detected (start_silence_detection called). Silence time set to: {self.silence_time}")
+
+        def stop_silence_detection():
+            """Callback triggered when recorder detects end of silence (start of speech)."""
+            self.set_silence(False)
+            self.silence_time = 0.0
+            logger.debug("👂🗣️ Speech detected (stop_silence_detection called). Silence time reset.")
+
+        def start_recording():
+            """Callback triggered when recorder starts a new recording segment."""
+            logger.info("👂▶️ Recording started.")
+            self.set_silence(False)
+            self.silence_time = 0.0
+            if self.on_recording_start_callback:
+                self.on_recording_start_callback()
+
+        def stop_recording() -> bool:
+            """Callback triggered when recorder stops a recording segment."""
+            logger.info("👂⏹️ Recording stopped.")
+            audio_copy = self.get_last_audio_copy()
+            if self.before_final_sentence:
+                logger.debug("👂➡️ Calling before_final_sentence callback...")
+                try:
+                    result = self.before_final_sentence(audio_copy, self.realtime_text)
+                    return result if isinstance(result, bool) else False
+                except Exception as e:
+                    logger.error(f"👂💥 Error in before_final_sentence callback: {e}", exc_info=True)
+                    return False
+            return False
+
+        def on_partial(text: Optional[str]):
+            """Callback triggered for real-time transcription updates."""
+            if text is None:
+                return
+            self.realtime_text = text
+            self.detect_potential_sentence_end(text)
+            stripped_partial_user_text_new = strip_ending_punctuation(text)
+            if stripped_partial_user_text_new != self.stripped_partial_user_text:
+                self.stripped_partial_user_text = stripped_partial_user_text_new
+                logger.info(f"👂📝 Partial transcription: {Colors.CYAN}{text}{Colors.RESET}")
+                if self.realtime_transcription_callback:
+                    self.realtime_transcription_callback(text)
+                if USE_TURN_DETECTION and hasattr(self, 'turn_detection'):
+                    self.turn_detection.calculate_waiting_time(text=text)
+            else:
+                logger.debug(f"👂📝 Partial transcription (no change after strip): {Colors.GRAY}{text}{Colors.RESET}")
+
+        # Update callbacks on the existing recorder
+        # Note: This assumes the recorder supports dynamic callback updates
+        # For RealtimeSTT, we need to set these as attributes
+        self.recorder.on_realtime_transcription_update = on_partial
+        self.recorder.on_turn_detection_start = start_silence_detection
+        self.recorder.on_turn_detection_stop = stop_silence_detection
+        self.recorder.on_recording_start = start_recording
+        self.recorder.on_recording_stop = stop_recording
+        
+        logger.info("👂✅ Callbacks configured on shared recorder instance.")
 
     def _create_recorder(self) -> None:
         """

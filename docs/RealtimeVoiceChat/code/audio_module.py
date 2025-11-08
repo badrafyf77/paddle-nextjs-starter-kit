@@ -81,6 +81,8 @@ class AudioProcessor:
             engine: str = START_ENGINE,
             orpheus_model: str = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf",
             skip_prewarm: bool = False,
+            shared_engine: Optional[Any] = None, # NEW: Accept shared TTS engine
+            shared_stream: Optional[Any] = None, # NEW: Accept shared TTS stream
         ) -> None:
         """
         Initializes the AudioProcessor with a specific TTS engine.
@@ -92,6 +94,9 @@ class AudioProcessor:
         Args:
             engine: The name of the TTS engine to use ("coqui", "kokoro", "orpheus").
             orpheus_model: The path or identifier for the Orpheus model file (used only if engine is "orpheus").
+            skip_prewarm: If True, skips prewarming and uses default latency estimates.
+            shared_engine: Optional pre-initialized TTS engine to share across connections.
+            shared_stream: Optional pre-initialized TextToAudioStream to share across connections.
         """
         self.engine_name = engine
         self.stop_event = threading.Event()
@@ -102,6 +107,19 @@ class AudioProcessor:
         self.silence = ENGINE_SILENCES.get(engine, ENGINE_SILENCES[self.engine_name])
         self.current_stream_chunk_size = QUICK_ANSWER_STREAM_CHUNK_SIZE # Initial chunk size
 
+        # NEW: Use shared engine and stream if provided
+        if shared_engine is not None and shared_stream is not None:
+            logger.info(f"👄♻️ Using shared TTS engine and stream: {self.engine_name}")
+            self.engine = shared_engine
+            self.stream = shared_stream
+            # Use pre-measured inference time from shared setup
+            self.tts_inference_time = 130.0 if skip_prewarm else getattr(shared_stream, '_measured_ttfa', 130.0)
+            logger.info(f"👄 Using shared TTFA: {self.tts_inference_time}ms")
+            return
+        
+        # Original initialization code for non-shared case
+        logger.info(f"👄🆕 Creating new TTS engine: {self.engine_name}")
+        
         # Dynamically load and configure the selected TTS engine
         if engine == "coqui":
             ensure_lasinya_models(models_root="models", model_name="Lasinya")

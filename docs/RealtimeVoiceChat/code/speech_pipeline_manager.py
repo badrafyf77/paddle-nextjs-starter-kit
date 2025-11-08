@@ -134,6 +134,11 @@ class SpeechPipelineManager:
             bedrock_region: str = "us-west-2",
             # Performance optimization
             skip_prewarm: bool = False,
+            # NEW: Shared resources
+            shared_audio_processor: Optional[AudioProcessor] = None,
+            shared_llm: Optional[LLM] = None,
+            shared_text_similarity: Optional[TextSimilarity] = None,
+            shared_text_context: Optional[TextContext] = None,
         ):
         """
         Initializes the SpeechPipelineManager.
@@ -167,14 +172,32 @@ class SpeechPipelineManager:
             self.system_prompt += f"\n{orpheus_prompt_addon}"
 
         # --- Instance Dependencies ---
-        self.audio = AudioProcessor(
-            engine=self.tts_engine,
-            orpheus_model=self.orpheus_model,
-            skip_prewarm=skip_prewarm
-        )
+        # NEW: Use shared resources if provided
+        if shared_audio_processor is not None:
+            logger.info("🗣️♻️ Using shared AudioProcessor")
+            self.audio = shared_audio_processor
+        else:
+            logger.info("🗣️🆕 Creating new AudioProcessor")
+            self.audio = AudioProcessor(
+                engine=self.tts_engine,
+                orpheus_model=self.orpheus_model,
+                skip_prewarm=skip_prewarm
+            )
         self.audio.on_first_audio_chunk_synthesize = self.on_first_audio_chunk_synthesize
-        self.text_similarity = TextSimilarity(focus='end', n_words=5)
-        self.text_context = TextContext()
+        
+        # NEW: Use shared utility classes if provided
+        if shared_text_similarity is not None:
+            logger.info("🗣️♻️ Using shared TextSimilarity")
+            self.text_similarity = shared_text_similarity
+        else:
+            self.text_similarity = TextSimilarity(focus='end', n_words=5)
+        
+        if shared_text_context is not None:
+            logger.info("🗣️♻️ Using shared TextContext")
+            self.text_context = shared_text_context
+        else:
+            self.text_context = TextContext()
+        
         self.generation_counter: int = 0
         self.abort_lock = threading.Lock()
         
@@ -192,25 +215,32 @@ class SpeechPipelineManager:
             # Bedrock doesn't need prewarming or inference time measurement
             self.llm_inference_time = 0.0
         else:
-            logger.info(f"🗣️🤖 Initializing {self.llm_provider} LLM")
-            self.llm = LLM(
-                backend=self.llm_provider,
-                model=self.llm_model,
-                system_prompt=self.system_prompt,
-                no_think=no_think,
-            )
-            if not skip_prewarm:
-                self.llm.prewarm()
-                self.llm_inference_time = self.llm.measure_inference_time()
-                if self.llm_inference_time is not None:
-                    logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
-                else:
-                    logger.warning(f"🗣️🧠⚠️ LLM inference time measurement failed, using default")
-                    self.llm_inference_time = 250.0  # Default estimate in ms
+            # NEW: Use shared LLM if provided
+            if shared_llm is not None:
+                logger.info("🗣️♻️ Using shared LLM client")
+                self.llm = shared_llm
+                # Use pre-measured inference time
+                self.llm_inference_time = getattr(shared_llm, '_measured_inference_time', 250.0)
             else:
-                # Skip prewarming - models already loaded, use default time
-                self.llm_inference_time = 250.0  # Default estimate in ms
-                logger.debug(f"🗣️🧠⚡ Skipped LLM prewarm (fast init)")
+                logger.info(f"🗣️🆕 Initializing new {self.llm_provider} LLM")
+                self.llm = LLM(
+                    backend=self.llm_provider,
+                    model=self.llm_model,
+                    system_prompt=self.system_prompt,
+                    no_think=no_think,
+                )
+                if not skip_prewarm:
+                    self.llm.prewarm()
+                    self.llm_inference_time = self.llm.measure_inference_time()
+                    if self.llm_inference_time is not None:
+                        logger.debug(f"🗣️🧠🕒 LLM inference time: {self.llm_inference_time:.2f}ms")
+                    else:
+                        logger.warning(f"🗣️🧠⚠️ LLM inference time measurement failed, using default")
+                        self.llm_inference_time = 250.0  # Default estimate in ms
+                else:
+                    # Skip prewarming - models already loaded, use default time
+                    self.llm_inference_time = 250.0  # Default estimate in ms
+                    logger.debug(f"🗣️🧠⚡ Skipped LLM prewarm (fast init)")
 
         # --- State ---
         self.history = []

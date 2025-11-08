@@ -45,6 +45,9 @@ TTS_START_ENGINE = "kokoro"
 TTS_ORPHEUS_MODEL = "Orpheus_3B-1BaseGGUF/mOrpheus_3B-1Base_Q4_K_M.gguf"
 TTS_ORPHEUS_MODEL = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf"
 
+# Import orpheus_prompt_addon for shared LLM initialization
+from speech_pipeline_manager import orpheus_prompt_addon, system_prompt
+
 # LLM Configuration - Can be overridden by environment variables
 LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "vllm")  # Options: "vllm", "ollama", "openai", "lmstudio", "bedrock"
 LLM_START_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
@@ -127,8 +130,9 @@ async def lifespan(app: FastAPI):
     """
     Manages the application's lifespan, initializing shared resources.
     
-    Note: SpeechPipelineManager and AudioInputProcessor are now created per-connection,
-    not globally. This ensures each user has isolated conversation context.
+    Initializes shared TTS engine, LLM client, and STT recorder that will be
+    reused across all WebSocket connections to minimize memory usage and
+    improve connection startup time.
 
     Args:
         app: The FastAPI application instance.
@@ -165,11 +169,104 @@ async def lifespan(app: FastAPI):
     app.state.PIPELINE_CONFIG = PIPELINE_CONFIG
     app.state.Upsampler = UpsampleOverlap()  # Stateless, can be shared
     
-    logger.info("🖥️✅ Server initialized - ready for connections")
+    # ============================================================================
+    # NEW: Initialize SHARED resources (used by all connections)
+    # ============================================================================
+    logger.info("🖥️🔧 Initializing shared resources...")
+    
+    # 1. Shared TTS Engine and Stream
+    logger.info(f"🖥️🔊 Initializing shared TTS engine: {TTS_START_ENGINE}")
+    from audio_module import AudioProcessor
+    shared_audio = AudioProcessor(
+        engine=TTS_START_ENGINE,
+        orpheus_model=TTS_ORPHEUS_MODEL,
+        skip_prewarm=False  # Prewarm once at startup
+    )
+    app.state.shared_tts_engine = shared_audio.engine
+    app.state.shared_tts_stream = shared_audio.stream
+    # Store measured TTFA for later use
+    app.state.shared_tts_stream._measured_ttfa = shared_audio.tts_inference_time
+    logger.info(f"🖥️✅ Shared TTS engine initialized (TTFA: {shared_audio.tts_inference_time:.2f}ms)")
+    
+    # 2. Shared LLM Client (skip for Bedrock as it's session-based)
+    if LLM_START_PROVIDER != "bedrock":
+        logger.info(f"🖥️🧠 Initializing shared LLM client: {LLM_START_PROVIDER}")
+        from llm_module import LLM
+        
+        # Build system prompt
+        shared_system_prompt = system_prompt
+        if TTS_START_ENGINE == "orpheus":
+            shared_system_prompt += f"\n{orpheus_prompt_addon}"
+        
+        shared_llm = LLM(
+            backend=LLM_START_PROVIDER,
+            model=LLM_START_MODEL,
+            system_prompt=shared_system_prompt,
+            no_think=NO_THINK,
+        )
+        # Prewarm the LLM once
+        shared_llm.prewarm()
+        llm_inference_time = shared_llm.measure_inference_time()
+        if llm_inference_time is not None:
+            shared_llm._measured_inference_time = llm_inference_time
+            logger.info(f"🖥️✅ Shared LLM client initialized (inference time: {llm_inference_time:.2f}ms)")
+        else:
+            shared_llm._measured_inference_time = 250.0
+            logger.warning(f"🖥️⚠️ LLM inference time measurement failed, using default: 250ms")
+        
+        app.state.shared_llm = shared_llm
+    else:
+        app.state.shared_llm = None
+        logger.info("🖥️ℹ️ Bedrock uses per-session LLM, skipping shared LLM initialization")
+    
+    # 3. Shared STT Recorder (WhisperModel)
+    logger.info(f"🖥️🎙️ Initializing shared STT recorder (Whisper model)")
+    from transcribe import TranscriptionProcessor, DEFAULT_RECORDER_CONFIG, START_STT_SERVER
+    import copy
+    
+    # Create a temporary TranscriptionProcessor just to initialize the recorder
+    temp_config = copy.deepcopy(DEFAULT_RECORDER_CONFIG)
+    temp_config['language'] = LANGUAGE
+    
+    # We'll create the recorder directly without callbacks for now
+    # Callbacks will be set per-connection
+    if START_STT_SERVER:
+        from RealtimeSTT import AudioToTextRecorderClient
+        shared_recorder = AudioToTextRecorderClient(**temp_config)
+    else:
+        from RealtimeSTT import AudioToTextRecorder
+        # Remove callback keys from config for initial creation
+        init_config = {k: v for k, v in temp_config.items() 
+                      if k not in ['on_realtime_transcription_update', 'on_turn_detection_start', 
+                                   'on_turn_detection_stop', 'on_recording_start', 'on_recording_stop']}
+        shared_recorder = AudioToTextRecorder(**init_config)
+        shared_recorder.use_wake_words = False
+    
+    app.state.shared_recorder = shared_recorder
+    logger.info("🖥️✅ Shared STT recorder initialized (Whisper model loaded)")
+    
+    # 4. Shared utility classes (lightweight but why not)
+    from text_similarity import TextSimilarity
+    from text_context import TextContext
+    app.state.shared_text_similarity = TextSimilarity(focus='end', n_words=5)
+    app.state.shared_text_context = TextContext()
+    logger.info("🖥️✅ Shared utility classes initialized")
+    
+    logger.info("🖥️✅ All shared resources initialized - ready for connections")
 
     yield
 
     logger.info("🖥️⏹️ Server shutting down")
+    
+    # Cleanup shared resources
+    if hasattr(app.state, 'shared_recorder') and app.state.shared_recorder:
+        try:
+            logger.info("🖥️🧹 Shutting down shared recorder...")
+            app.state.shared_recorder.shutdown()
+        except Exception as e:
+            logger.error(f"🖥️⚠️ Error shutting down shared recorder: {e}")
+    
+    logger.info("🖥️👋 Server shutdown complete")
 
 # --------------------------------------------------------------------
 # FastAPI app instance
@@ -1035,18 +1132,41 @@ async def websocket_endpoint(ws: WebSocket):
     })
     
     # Create DEDICATED pipeline manager for this connection
-    # Each user gets their own isolated pipeline (LLM, TTS, history, etc.)
-    log_event("⚙️", f"[User {user_id}] Initializing AI models...")
-    pipeline_manager = SpeechPipelineManager(**app.state.PIPELINE_CONFIG)
-    log_event("✅", f"[User {user_id}] AI models ready")
+    # Uses SHARED resources (TTS engine, LLM client, STT recorder) but maintains
+    # per-connection state (history, generation state, callbacks)
+    log_event("⚙️", f"[User {user_id}] Initializing session (using shared models)...")
     
-    # Create DEDICATED audio processor for this connection
+    # Prepare shared audio processor wrapper
+    from audio_module import AudioProcessor
+    shared_audio_wrapper = AudioProcessor(
+        engine=TTS_START_ENGINE,
+        orpheus_model=TTS_ORPHEUS_MODEL,
+        skip_prewarm=True,  # Skip prewarm, use shared resources
+        shared_engine=app.state.shared_tts_engine,
+        shared_stream=app.state.shared_tts_stream,
+    )
+    
+    # Create pipeline manager with shared resources
+    pipeline_config = app.state.PIPELINE_CONFIG.copy()
+    pipeline_config.update({
+        "skip_prewarm": True,  # Skip prewarming, use shared resources
+        "shared_audio_processor": shared_audio_wrapper,
+        "shared_llm": app.state.shared_llm,
+        "shared_text_similarity": app.state.shared_text_similarity,
+        "shared_text_context": app.state.shared_text_context,
+    })
+    
+    pipeline_manager = SpeechPipelineManager(**pipeline_config)
+    log_event("✅", f"[User {user_id}] Pipeline ready (shared models)")
+    
+    # Create DEDICATED audio processor for this connection (uses shared recorder)
     audio_processor = AudioInputProcessor(
         LANGUAGE,
         is_orpheus=TTS_START_ENGINE=="orpheus",
         pipeline_latency=pipeline_manager.full_output_pipeline_latency / 1000,
+        shared_recorder=app.state.shared_recorder,  # Use shared recorder
     )
-    log_event("🎧", f"[User {user_id}] Audio system ready")
+    log_event("🎧", f"[User {user_id}] Audio system ready (shared recorder)")
 
     # Create connection state holder
     class ConnectionState:

@@ -26,6 +26,7 @@ class AudioInputProcessor:
             is_orpheus: bool = False,
             silence_active_callback: Optional[Callable[[bool], None]] = None,
             pipeline_latency: float = 0.5,
+            shared_recorder: Optional[Any] = None, # NEW: Accept shared recorder
         ) -> None:
         """
         Initializes the AudioInputProcessor.
@@ -36,6 +37,7 @@ class AudioInputProcessor:
             silence_active_callback: Optional callback function invoked when silence state changes.
                                      It receives a boolean argument (True if silence is active).
             pipeline_latency: Estimated latency of the processing pipeline in seconds.
+            shared_recorder: Optional shared recorder instance to use across connections.
         """
         self.last_partial_text: Optional[str] = None
         self.transcriber = TranscriptionProcessor(
@@ -44,6 +46,7 @@ class AudioInputProcessor:
             silence_active_callback=self._silence_active_callback,
             is_orpheus=is_orpheus,
             pipeline_latency=pipeline_latency,
+            shared_recorder=shared_recorder, # NEW: Pass shared recorder
         )
         # Flag to indicate if the transcription loop has failed fatally
         self._transcription_failed = False
