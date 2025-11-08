@@ -6,7 +6,7 @@ import threading
 import time
 from collections import namedtuple
 from queue import Queue
-from typing import Callable, Generator, Optional
+from typing import Callable, Generator, Optional, Any
 
 import numpy as np
 from huggingface_hub import hf_hub_download

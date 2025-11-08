@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 import numpy as np
 from scipy.signal import resample_poly
 from transcribe import TranscriptionProcessor
