@@ -180,38 +180,31 @@ export function useWebSocket(serverUrl: string) {
             return prev;
           }
 
-          // Find the last assistant message that's still partial (current response)
-          const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
+          // Find the last user message and last assistant message
+          const lastUserIndex = prev.findLastIndex((m) => m.role === 'user' && m.type === 'final');
+          const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant');
 
-          if (lastAssistantIndex !== -1) {
-            // Check if this assistant message comes after the last user message
-            const lastUserIndex = prev.findLastIndex((m) => m.role === 'user' && m.type === 'final');
+          // If there's an assistant message after the last user message, update it
+          if (lastAssistantIndex !== -1 && lastAssistantIndex > lastUserIndex) {
+            // This assistant message is for the current turn
+            const lastAssistant = prev[lastAssistantIndex];
 
-            if (lastUserIndex > lastAssistantIndex) {
-              // The partial assistant message is from a previous turn, create a new one
-              console.log('✅ Creating new assistant message (new turn)');
-              return [
-                ...prev,
-                {
-                  id: `assistant-${Date.now()}`,
-                  role: 'assistant' as const,
-                  content,
-                  type: 'partial' as const,
-                  timestamp: Date.now(),
-                },
-              ];
+            // Only update if it's still partial (not finalized)
+            if (lastAssistant.type === 'partial') {
+              const updated = [...prev];
+              updated[lastAssistantIndex] = {
+                ...updated[lastAssistantIndex],
+                content, // Replace with full accumulated text
+              };
+              return updated;
+            } else {
+              // The last assistant message is already final, ignore this update
+              console.log('⚠️ Ignoring partial update for finalized message');
+              return prev;
             }
-
-            // Update existing partial message with new content (replace, not append)
-            const updated = [...prev];
-            updated[lastAssistantIndex] = {
-              ...updated[lastAssistantIndex],
-              content, // Replace with full accumulated text
-            };
-            return updated;
           } else {
-            // Create new partial assistant message for this response
-            console.log('✅ Created new assistant message');
+            // No assistant message after last user, create new one
+            console.log('✅ Creating new assistant message');
             return [
               ...prev,
               {

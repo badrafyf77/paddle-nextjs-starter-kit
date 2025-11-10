@@ -472,7 +472,6 @@ class SpeechPipelineManager:
                             current_gen.quick_answer_overhang = overhang
                             current_gen.quick_answer_provided = True
                             self.llm_answer_ready_event.set() # Signal TTS quick worker
-                            break
                             # Do NOT break here, continue iterating to finish the full LLM response
 
 
