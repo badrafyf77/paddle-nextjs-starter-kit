@@ -723,10 +723,6 @@ class TranscriptionCallbacks:
         self.final_assistant_answer_sent: bool = False
         self.partial_transcription: str = "" # Added for clarity
 
-        # NEW: Sentence-by-sentence tracking for separate bubbles
-        self.sent_sentences: list = []  # Track sentences already sent to client
-        self.sentence_counter: int = 0  # Counter for unique sentence IDs
-
         self.reset_state() # Call reset to ensure consistency
 
         self.abort_request_event = threading.Event()
@@ -756,53 +752,11 @@ class TranscriptionCallbacks:
         self.final_assistant_answer_sent = False
         self.partial_transcription = ""
 
-        # Reset sentence tracking
-        self.sent_sentences.clear()
-        self.sentence_counter = 0
-
         # Keep the abort call related to the audio processor/pipeline manager
         self.conn_state.audio_processor.abort_generation()
 
 
-    def send_sentence_if_complete(self, text: str) -> None:
-        """
-        Detects complete sentences and sends them as individual message bubbles.
-        Each sentence appears as TTS starts speaking it.
-        
-        Args:
-            text: The current accumulated text from LLM
-        """
-        import re
-        
-        # Split by sentence endings, keeping the punctuation
-        # This regex splits on . ! ? but keeps the punctuation with the sentence
-        parts = re.split(r'([.!?。]+)', text)
-        
-        # Reconstruct complete sentences with their punctuation
-        complete_sentences = []
-        for i in range(0, len(parts) - 1, 2):
-            if i + 1 < len(parts):
-                sentence = (parts[i] + parts[i + 1]).strip()
-                # Only consider it a sentence if it has minimum length and content
-                if len(sentence) > 10 and any(c.isalnum() for c in sentence):
-                    complete_sentences.append(sentence)
-        
-        # Send any new sentences that haven't been sent yet
-        for sentence in complete_sentences:
-            # Check if this exact sentence was already sent (avoid duplicates)
-            if sentence not in self.sent_sentences:
-                # This is a new sentence - send it as a separate bubble
-                self.sentence_counter += 1
-                # Sentence sent - no need to log, already logged in on_partial_assistant_text
-                self.message_queue.put_nowait({
-                    "type": "assistant_sentence",
-                    "content": sentence,
-                    "sentence_id": self.sentence_counter,
-                })
-                
-                self.sent_sentences.append(sentence)
-            else:
-                logger.debug(f"🖥️💬 Skipping duplicate sentence: {sentence[:60]}...")
+
 
     def _abort_worker(self):
         """Background thread worker to check for abort conditions based on partial text."""
@@ -890,6 +844,8 @@ class TranscriptionCallbacks:
         self.user_finished_turn = True
         self.user_interrupted = False # Reset connection-specific flag (user finished, not interrupted)
         self.final_assistant_answer_sent = False # Reset for next turn
+        self.assistant_answer = "" # Clear previous assistant answer
+        self._last_logged_length = 0 # Reset logging counter
         # Access connection-specific manager state
         if self.conn_state.pipeline_manager.is_valid_gen():
             logger.info(f"{Colors.apply('🖥️🔊 TTS ALLOWED (before final)').blue}")
