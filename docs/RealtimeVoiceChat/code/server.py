@@ -893,7 +893,7 @@ class TranscriptionCallbacks:
         Args:
             txt: The final transcription text.
         """
-        log_event("👤", f"[User {self.user_id}] Said: \"{txt}\"")
+        logger.info(f"{Colors.apply('👤 USER:').cyan} {Colors.apply(txt).white}")
         self.last_user_speech_time = time.time()  # Track when user spoke
         self.user_speech_received = True  # Flag that user spoke
         
@@ -937,13 +937,13 @@ class TranscriptionCallbacks:
         """
         # Only log when text changes significantly (not every token)
         if not hasattr(self, '_last_logged_length') or len(txt) - self._last_logged_length > 50:
-            log_event("🤖", f"[User {self.user_id}] Assistant: {txt[:80]}{'...' if len(txt) > 80 else ''}")
+            logger.info(f"{Colors.apply('🤖 ASSISTANT:').green} {Colors.apply(txt[:80]).white}{'...' if len(txt) > 80 else ''}")
             self._last_logged_length = len(txt)
             
             # Check if this is the first response after user speech
             if hasattr(self, 'user_speech_received') and self.user_speech_received and len(txt) > 20:
                 response_time = time.time() - self.last_user_speech_time
-                log_event("⏱️", f"[User {self.user_id}] Response started ({response_time:.1f}s after user spoke)")
+                logger.info(f"{Colors.apply('⏱️  Response time:').yellow} {response_time:.1f}s")
                 self.user_speech_received = False  # Reset flag
         
         # Use connection-specific user_interrupted flag
@@ -1041,9 +1041,9 @@ class TranscriptionCallbacks:
                 if hasattr(self, 'last_user_speech_time') and self.last_user_speech_time > 0:
                     response_time = time.time() - self.last_user_speech_time
                     if response_time > 10:
-                        log_event("⚠️", f"[User {self.user_id}] Slow response ({response_time:.1f}s)", "warning")
+                        logger.warning(f"{Colors.apply('⚠️  Slow response:').yellow} {response_time:.1f}s")
                 
-                log_event("✅", f"[User {self.user_id}] Complete: \"{cleaned_answer[:100]}{'...' if len(cleaned_answer) > 100 else ''}\"")
+                logger.info(f"{Colors.apply('✅ COMPLETE:').green} {Colors.apply(cleaned_answer[:100]).white}{'...' if len(cleaned_answer) > 100 else ''}")
                 self.user_speech_received = False  # Reset flag after response
                 self.message_queue.put_nowait({
                     "type": "final_assistant_answer",

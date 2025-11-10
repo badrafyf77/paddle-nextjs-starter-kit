@@ -282,7 +282,7 @@ class AudioProcessor:
         Returns:
             True if synthesis completed fully, False if interrupted by stop_event.
         """
-        logger.info(f"👄 synthesize QUICK start text_len={len(text)} stop_set={stop_event.is_set()}")
+        logger.debug(f"👄 synthesize QUICK start text_len={len(text)}")
 
         if self.engine_name == "coqui" and hasattr(self.engine, 'set_stream_chunk_size') and self.current_stream_chunk_size != QUICK_ANSWER_STREAM_CHUNK_SIZE:
             logger.info(f"👄⚙️ {generation_string} Setting Coqui stream chunk size to {QUICK_ANSWER_STREAM_CHUNK_SIZE} for quick synthesis.")
@@ -437,7 +437,7 @@ class AudioProcessor:
                     logger.warning(f"👄⚠️ {generation_string} Quick audio queue full on final flush, dropping chunk.")
             buffer.clear()
 
-        logger.info(f"👄 synthesize QUICK finished completed={not stop_event.is_set()}")
+        logger.debug(f"👄 synthesize QUICK finished completed={not stop_event.is_set()}")
         logger.info(f"👄✅ {generation_string} Quick answer synthesis complete. Text: {text[:50]}...")
         return True # Indicate successful completion
 

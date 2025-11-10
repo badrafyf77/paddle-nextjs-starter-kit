@@ -675,21 +675,21 @@ class SpeechPipelineManager:
                      logger.info(f"🗣️👄❌ [Gen {gen_id}] Quick TTS Worker: Aborting TTS synthesis due to stop request or abortion flag.")
                      current_gen.audio_quick_aborted = True
                 else:
-                    logger.info(f"🗣️👄 [Gen {gen_id}] QUICK calling synth len={len(current_gen.quick_answer)} allowed_to_speak=True")
-                    logger.info(f"🗣️👄🎶 [Gen {gen_id}] Quick TTS Worker: Synthesizing: '{current_gen.quick_answer[:50]}...'")
+                    logger.debug(f"🗣️👄 [Gen {gen_id}] QUICK calling synth len={len(current_gen.quick_answer)}")
+                    logger.info(f"🗣️🔊 [Gen {gen_id}] Synthesizing: '{current_gen.quick_answer[:50]}...'")
                     completed = self.audio.synthesize(
                         current_gen.quick_answer,
                         current_gen.audio_chunks,
                         self.stop_tts_quick_request_event # Pass the event for the synthesizer to check
                     )
 
-                    logger.info(f"🗣️👄 [Gen {gen_id}] QUICK synth returned completed={completed}")
+                    logger.debug(f"🗣️👄 [Gen {gen_id}] QUICK synth returned completed={completed}")
                     if not completed:
                         # Synthesis was stopped by the stop_tts_quick_request_event
-                        logger.info(f"🗣️👄❌ [Gen {gen_id}] Quick TTS Worker: Synthesis stopped via event.")
+                        logger.debug(f"🗣️👄❌ [Gen {gen_id}] Synthesis stopped")
                         current_gen.audio_quick_aborted = True
                     else:
-                        logger.info(f"🗣️👄✅ [Gen {gen_id}] Quick TTS Worker: Synthesis completed successfully.")
+                        logger.debug(f"🗣️👄✅ [Gen {gen_id}] Synthesis completed")
 
 
             except Exception as e:
