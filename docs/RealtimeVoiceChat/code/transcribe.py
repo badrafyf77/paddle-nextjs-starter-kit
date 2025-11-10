@@ -20,6 +20,14 @@ from typing import Optional, Callable, Any, Dict, List
 USE_TURN_DETECTION = True
 START_STT_SERVER = False # Set to True to use the client/server version of RealtimeSTT
 
+# --- Noise Hallucination Filter Configuration ---
+# STT models can hallucinate text from pure noise (e.g., "Thank you" from a door closing)
+# This threshold filters out transcriptions that have very low audio energy (likely just noise)
+MIN_SPEECH_ENERGY_THRESHOLD = 0.015  # Minimum RMS energy (0.0-1.0 scale)
+                                      # Typical real speech: 0.02-0.3
+                                      # Pure noise: 0.001-0.01
+                                      # Set to 0.0 to disable filtering
+
 # --- Recorder Configuration (Moved here for clarity, can be externalized) ---
 # Default config if none provided to constructor
 DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
@@ -712,6 +720,25 @@ class TranscriptionProcessor:
             """Callback triggered for real-time transcription updates."""
             if text is None:
                 return
+            
+            # Filter out noise-based hallucinations by checking audio energy
+            # Only reject if energy is very low (pure noise), accept all real speech
+            if MIN_SPEECH_ENERGY_THRESHOLD > 0:
+                try:
+                    audio_data = self.get_last_audio_copy()
+                    if audio_data is not None and len(audio_data) > 0:
+                        audio_array = np.frombuffer(audio_data, dtype=np.int16)
+                        rms_energy = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+                        normalized_energy = rms_energy / INT16_MAX_ABS_VALUE
+                        
+                        if normalized_energy < MIN_SPEECH_ENERGY_THRESHOLD:
+                            logger.debug(f"👂🚫 Noise filter: Rejecting low-energy transcription ({normalized_energy:.4f}): '{text}'")
+                            return
+                        
+                        logger.debug(f"👂✅ Energy check passed ({normalized_energy:.4f}): '{text}'")
+                except Exception as e:
+                    logger.debug(f"👂⚠️ Energy check failed, accepting transcription: {e}")
+            
             self.realtime_text = text
             self.detect_potential_sentence_end(text)
             stripped_partial_user_text_new = strip_ending_punctuation(text)
@@ -793,6 +820,25 @@ class TranscriptionProcessor:
             if text is None:
                 # logger.warning(f"👂❓ {Colors.RED}Partial text received None{Colors.RESET}") # Can be noisy
                 return
+            
+            # Filter out noise-based hallucinations by checking audio energy
+            # Only reject if energy is very low (pure noise), accept all real speech
+            if MIN_SPEECH_ENERGY_THRESHOLD > 0:
+                try:
+                    audio_data = self.get_last_audio_copy()
+                    if audio_data is not None and len(audio_data) > 0:
+                        audio_array = np.frombuffer(audio_data, dtype=np.int16)
+                        rms_energy = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+                        normalized_energy = rms_energy / INT16_MAX_ABS_VALUE
+                        
+                        if normalized_energy < MIN_SPEECH_ENERGY_THRESHOLD:
+                            logger.debug(f"👂🚫 Noise filter: Rejecting low-energy transcription ({normalized_energy:.4f}): '{text}'")
+                            return
+                        
+                        logger.debug(f"👂✅ Energy check passed ({normalized_energy:.4f}): '{text}'")
+                except Exception as e:
+                    logger.debug(f"👂⚠️ Energy check failed, accepting transcription: {e}")
+            
             self.realtime_text = text # Update the latest realtime text
 
             # Detect potential sentence ends based on punctuation stability
