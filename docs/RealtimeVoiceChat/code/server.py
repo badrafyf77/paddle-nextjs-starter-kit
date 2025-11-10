@@ -973,11 +973,11 @@ class TranscriptionCallbacks:
         """
         Callback invoked when a partial text result from the assistant (LLM) is available.
 
-        Updates the internal assistant answer state and sends complete sentences as 
-        individual message bubbles to the client, unless the user has interrupted.
+        Updates the internal assistant answer state and sends the full accumulated text
+        to the client, unless the user has interrupted.
 
         Args:
-            txt: The partial assistant text.
+            txt: The partial assistant text (full accumulated response so far).
         """
         # Only log when text changes significantly (not every token)
         if not hasattr(self, '_last_logged_length') or len(txt) - self._last_logged_length > 50:
@@ -995,8 +995,11 @@ class TranscriptionCallbacks:
             self.assistant_answer = txt
             # Use connection-specific tts_to_client flag
             if self.tts_to_client:
-                # Send complete sentences as individual bubbles
-                self.send_sentence_if_complete(txt)
+                # Send the full accumulated text as partial answer
+                self.message_queue.put_nowait({
+                    "type": "partial_assistant_answer",
+                    "content": txt
+                })
 
     def on_recording_start(self):
         """

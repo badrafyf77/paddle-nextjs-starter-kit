@@ -169,16 +169,14 @@ export function useWebSocket(serverUrl: string) {
         });
         break;
 
-      case 'assistant_sentence':
+      case 'partial_assistant_answer':
         setMessages((prev) => {
           if (!content?.trim()) return prev;
 
           // Ensure there's a final user message before adding assistant response
           const hasFinalUserMessage = prev.some((m) => m.role === 'user' && m.type === 'final');
           if (!hasFinalUserMessage) {
-            console.log('⚠️ Received assistant sentence before user message, buffering...');
-            // Buffer this sentence and wait for user message
-            // For now, just skip it - the next sentence will create the message
+            console.log('⚠️ Received assistant answer before user message, waiting...');
             return prev;
           }
 
@@ -191,7 +189,7 @@ export function useWebSocket(serverUrl: string) {
 
             if (lastUserIndex > lastAssistantIndex) {
               // The partial assistant message is from a previous turn, create a new one
-              console.log('✅ Creating new assistant message (previous turn):', content);
+              console.log('✅ Creating new assistant message (new turn)');
               return [
                 ...prev,
                 {
@@ -204,18 +202,16 @@ export function useWebSocket(serverUrl: string) {
               ];
             }
 
-            // Append to existing partial message from current turn
+            // Update existing partial message with new content (replace, not append)
             const updated = [...prev];
-            const separator = updated[lastAssistantIndex].content ? ' ' : '';
             updated[lastAssistantIndex] = {
               ...updated[lastAssistantIndex],
-              content: updated[lastAssistantIndex].content + separator + content,
+              content, // Replace with full accumulated text
             };
-            console.log('✅ Appended sentence:', content);
             return updated;
           } else {
             // Create new partial assistant message for this response
-            console.log('✅ Created new assistant message:', content);
+            console.log('✅ Created new assistant message');
             return [
               ...prev,
               {
@@ -228,12 +224,6 @@ export function useWebSocket(serverUrl: string) {
             ];
           }
         });
-        break;
-
-      case 'partial_assistant_answer':
-        // This message type is not really needed with sentence streaming
-        // Just ignore it or use it to create placeholder if needed
-        console.log('ℹ️ Received partial_assistant_answer (ignored, using sentences instead)');
         break;
 
       case 'final_assistant_answer':
