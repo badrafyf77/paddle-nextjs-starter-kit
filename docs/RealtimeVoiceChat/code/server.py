@@ -736,6 +736,7 @@ class TranscriptionCallbacks:
         self.tts_to_client = False
         self.user_interrupted = False
         self.tts_chunk_sent = False
+        self.recording_active = False
         # Don't reset tts_client_playing here, it reflects client state reports
         self.interruption_time = 0.0
 
@@ -777,10 +778,36 @@ class TranscriptionCallbacks:
 
         Updates internal state, sends the partial result to the client,
         and signals the abort worker thread to check for potential interruptions.
+        
+        IMPORTANT: Only interrupts TTS if there's actual speech content (non-empty text).
+        This prevents false positives from noise triggering premature TTS stops.
 
         Args:
             txt: The partial transcription text.
         """
+        # Only interrupt TTS if there's actual speech content
+        if txt and txt.strip() and self.tts_client_playing:
+            # User is actually speaking - interrupt TTS
+            self.tts_to_client = False # Stop server sending TTS
+            self.user_interrupted = True # Mark connection as user interrupted
+            logger.info(f"{Colors.apply('🖥️❗ INTERRUPTING TTS due to actual speech: ').blue}'{txt[:30]}...'")
+
+            # Send final assistant answer *if* one was generated and not sent
+            logger.info(Colors.apply("🖥️✅ Sending final assistant answer (forced on interruption)").pink)
+            self.send_final_assistant_answer(forced=True)
+
+            # Minimal reset for interruption:
+            self.tts_chunk_sent = False # Reset chunk sending flag
+
+            logger.info("🖥️🛑 Sending stop_tts to client.")
+            self.message_queue.put_nowait({
+                "type": "stop_tts", # Client handles this to mute/ignore
+                "content": ""
+            })
+
+            logger.info(f"{Colors.apply('🖥️🛑 USER SPEECH ABORTING GENERATION').red}")
+            self.abort_generations("on_partial, user speaks with actual content")
+        
         self.final_assistant_answer_sent = False # New user speech invalidates previous final answer sending state
         self.final_transcription = "" # Clear final transcription as this is partial
         self.partial_transcription = txt
@@ -961,43 +988,20 @@ class TranscriptionCallbacks:
         """
         Callback invoked when the audio input processor starts recording user speech.
 
+        NOTE: This is called when STT detects potential speech (including false positives/noise).
+        We should NOT interrupt TTS here - wait for actual speech content in on_partial.
+        
         If client-side TTS is playing, it triggers an interruption: stops server-side
         TTS streaming, sends stop/interruption messages to the client, aborts ongoing
         generation, sends any final assistant answer generated so far, and resets relevant state.
         """
-        log_event("🎤", f"[User {self.user_id}] Started speaking")
-        # Use connection-specific tts_client_playing flag
-        if self.tts_client_playing:
-            self.tts_to_client = False # Stop server sending TTS
-            self.user_interrupted = True # Mark connection as user interrupted
-            logger.info(f"{Colors.apply('🖥️❗ INTERRUPTING TTS due to recording start').blue}")
-
-            # Send final assistant answer *if* one was generated and not sent
-            logger.info(Colors.apply("🖥️✅ Sending final assistant answer (forced on interruption)").pink)
-            self.send_final_assistant_answer(forced=True)
-
-            # Minimal reset for interruption:
-            self.tts_chunk_sent = False # Reset chunk sending flag
-            # self.assistant_answer = "" # Optional: Clear partial answer if needed
-
-            logger.info("🖥️🛑 Sending stop_tts to client.")
-            self.message_queue.put_nowait({
-                "type": "stop_tts", # Client handles this to mute/ignore
-                "content": ""
-            })
-
-            logger.info(f"{Colors.apply('🖥️🛑 RECORDING START ABORTING GENERATION').red}")
-            self.abort_generations("on_recording_start, user interrupts, TTS Playing")
-
-            logger.info("🖥️❗ Sending tts_interruption to client.")
-            self.message_queue.put_nowait({ # Tell client to stop playback and clear buffer
-                "type": "tts_interruption",
-                "content": ""
-            })
-
-            # Reset state *after* performing actions based on the old state
-            # Be careful what exactly needs reset vs persists (like tts_client_playing)
-            # self.reset_state() # Might clear too much, like user_interrupted prematurely
+        log_event("🎤", f"[User {self.user_id}] Recording started (potential speech detected)")
+        # DON'T interrupt TTS here - this could be a false positive!
+        # Wait for on_partial to be called with actual text content before interrupting.
+        # The old code would interrupt on any noise, causing premature TTS stops.
+        
+        # Store that recording started, but don't act on it yet
+        self.recording_active = True
 
     def send_final_assistant_answer(self, forced=False):
         """
