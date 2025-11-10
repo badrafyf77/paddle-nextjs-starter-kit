@@ -100,6 +100,11 @@ export function useWebSocket(serverUrl: string) {
   const handleJSONMessage = useCallback((data: WebSocketMessage) => {
     const { type, content, sentence_id } = data;
 
+    // Log all non-tts_chunk messages for debugging
+    if (type !== 'tts_chunk') {
+      console.log('📨 Received message:', type, content ? `"${content.substring(0, 50)}..."` : '');
+    }
+
     switch (type) {
       case 'status':
         // Handle server status messages (initializing, ready, error)
@@ -116,7 +121,8 @@ export function useWebSocket(serverUrl: string) {
 
       case 'partial_user_request':
         setMessages((prev) => {
-          const filtered = prev.filter((m) => m.type !== 'partial' || m.role !== 'user');
+          // Remove any partial user messages
+          const filtered = prev.filter((m) => !(m.type === 'partial' && m.role === 'user'));
           if (content?.trim()) {
             return [
               ...filtered,
@@ -135,10 +141,21 @@ export function useWebSocket(serverUrl: string) {
 
       case 'final_user_request':
         setMessages((prev) => {
-          const filtered = prev.filter((m) => m.type !== 'partial' || m.role !== 'user');
+          // Remove partial user messages and mark all partial assistant messages as final
+          // This ensures previous assistant response is finalized before new user message
+          const updated = prev
+            .filter((m) => !(m.type === 'partial' && m.role === 'user'))
+            .map((m) => {
+              // Finalize any partial assistant messages from previous turn
+              if (m.role === 'assistant' && m.type === 'partial') {
+                return { ...m, type: 'final' as const };
+              }
+              return m;
+            });
+
           if (content?.trim()) {
             return [
-              ...filtered,
+              ...updated,
               {
                 id: `final-user-${Date.now()}`,
                 role: 'user' as const,
@@ -148,7 +165,7 @@ export function useWebSocket(serverUrl: string) {
               },
             ];
           }
-          return filtered;
+          return updated;
         });
         break;
 
@@ -156,48 +173,49 @@ export function useWebSocket(serverUrl: string) {
         setMessages((prev) => {
           if (!content?.trim()) return prev;
 
-          // Find the last assistant message that's still being generated
+          // Ensure there's a final user message before adding assistant response
+          const hasFinalUserMessage = prev.some((m) => m.role === 'user' && m.type === 'final');
+          if (!hasFinalUserMessage) {
+            console.log('⚠️ Received assistant sentence before user message, buffering...');
+            // Buffer this sentence and wait for user message
+            // For now, just skip it - the next sentence will create the message
+            return prev;
+          }
+
+          // Find the last assistant message that's still partial (current response)
           const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
 
           if (lastAssistantIndex !== -1) {
-            const lastMessage = prev[lastAssistantIndex];
-            const trimmedContent = content.trim();
+            // Check if this assistant message comes after the last user message
+            const lastUserIndex = prev.findLastIndex((m) => m.role === 'user' && m.type === 'final');
 
-            // Normalize text for comparison (remove punctuation, lowercase, trim spaces)
-            const normalizeText = (text: string) =>
-              text
-                .toLowerCase()
-                .replace(/[.!?,;:]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            const normalizedNewSentence = normalizeText(trimmedContent);
-            const normalizedExisting = normalizeText(lastMessage.content);
-
-            // Check if this sentence is already in the content (fuzzy match)
-            if (normalizedExisting.includes(normalizedNewSentence)) {
-              console.log('⚠️ Duplicate sentence detected (fuzzy match), skipping:', trimmedContent);
-              return prev;
+            if (lastUserIndex > lastAssistantIndex) {
+              // The partial assistant message is from a previous turn, create a new one
+              console.log('✅ Creating new assistant message (previous turn):', content);
+              return [
+                ...prev,
+                {
+                  id: `assistant-${Date.now()}`,
+                  role: 'assistant' as const,
+                  content,
+                  type: 'partial' as const,
+                  timestamp: Date.now(),
+                },
+              ];
             }
 
-            // Also check if the new sentence is a substring of what we already have
-            if (normalizedNewSentence.length > 10 && normalizedExisting.includes(normalizedNewSentence)) {
-              console.log('⚠️ Sentence already included in existing content, skipping:', trimmedContent);
-              return prev;
-            }
-
-            // Append to existing partial assistant message
+            // Append to existing partial message from current turn
             const updated = [...prev];
-            const separator = lastMessage.content ? ' ' : '';
+            const separator = updated[lastAssistantIndex].content ? ' ' : '';
             updated[lastAssistantIndex] = {
               ...updated[lastAssistantIndex],
               content: updated[lastAssistantIndex].content + separator + content,
             };
-            console.log('✅ Added sentence to existing message:', content);
+            console.log('✅ Appended sentence:', content);
             return updated;
           } else {
-            // Create new partial assistant message
-            console.log('✅ Created new assistant message with sentence:', content);
+            // Create new partial assistant message for this response
+            console.log('✅ Created new assistant message:', content);
             return [
               ...prev,
               {
@@ -213,32 +231,9 @@ export function useWebSocket(serverUrl: string) {
         break;
 
       case 'partial_assistant_answer':
-        // Create a placeholder message that will be replaced by sentences
-        // This ensures we have a message container ready
-        setMessages((prev) => {
-          if (!content?.trim()) return prev;
-
-          // Check if there's already a partial assistant message
-          const hasPartialAssistant = prev.some((m) => m.role === 'assistant' && m.type === 'partial');
-
-          if (!hasPartialAssistant) {
-            // Create empty placeholder - sentences will fill it
-            console.log('✅ Created placeholder assistant message (will be filled by sentences)');
-            return [
-              ...prev,
-              {
-                id: `assistant-${Date.now()}`,
-                role: 'assistant' as const,
-                content: '', // Empty - sentences will populate this
-                type: 'partial' as const,
-                timestamp: Date.now(),
-              },
-            ];
-          } else {
-            console.log('ℹ️ Partial assistant message already exists, skipping partial_answer');
-            return prev;
-          }
-        });
+        // This message type is not really needed with sentence streaming
+        // Just ignore it or use it to create placeholder if needed
+        console.log('ℹ️ Received partial_assistant_answer (ignored, using sentences instead)');
         break;
 
       case 'final_assistant_answer':
@@ -252,7 +247,12 @@ export function useWebSocket(serverUrl: string) {
               ...updated[lastAssistantIndex],
               type: 'final' as const,
             };
+            console.log('✅ Marked assistant message as final');
             return updated;
+          } else {
+            // No partial message found - this shouldn't happen with sentence streaming
+            // but handle it gracefully
+            console.log('⚠️ No partial assistant message to finalize');
           }
           return prev;
         });

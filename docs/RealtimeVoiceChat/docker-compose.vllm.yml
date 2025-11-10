@@ -41,20 +41,13 @@ services:
     ports:
       - '8000:8000'
     command:
-      - --model
-      - Qwen/Qwen2.5-3B-Instruct
-      - --dtype
-      - auto
-      - --max-model-len
-      - '4096'
-      - --gpu-memory-utilization
-      - '0.5' # Use only 50% GPU memory (~12GB) to leave room for TTS/Whisper/Turn detection
-      # Multi-user optimizations
-      - --max-num-seqs
-      - '32' # Handle up to 32 concurrent requests
+      - --model=Qwen/Qwen2.5-3B-Instruct
+      - --dtype=auto
+      - --max-model-len=4096
+      - --gpu-memory-utilization=0.5
+      - --max-num-seqs=32
       - --enable-chunked-prefill
-      - --max-num-batched-tokens
-      - '8192'
+      - --max-num-batched-tokens=8192
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility

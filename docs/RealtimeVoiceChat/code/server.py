@@ -52,10 +52,10 @@ from speech_pipeline_manager import orpheus_prompt_addon, system_prompt
 LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "vllm")  # Options: "vllm", "ollama", "openai", "lmstudio", "bedrock"
 LLM_START_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
 
-# Bedrock-specific configuration (required when LLM_START_PROVIDER="bedrock")
-BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "VUEHUL2HDK")
-BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID", "JBU23UII65")
-BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-west-2")
+# # Bedrock-specific configuration (required when LLM_START_PROVIDER="bedrock")
+# BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "VUEHUL2HDK")
+# BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID", "JBU23UII65")
+# BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-west-2")
 
 NO_THINK = False
 DIRECT_STREAM = TTS_START_ENGINE=="orpheus"
@@ -626,17 +626,21 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                 audio_final_finished = conn_state.pipeline_manager.running_generation.audio_final_finished
                 llm_finished = conn_state.pipeline_manager.running_generation.llm_finished
 
-                # Only send final answer when BOTH audio AND LLM are finished
-                if (not final_expected or audio_final_finished) and llm_finished:
+                # Send final answer when LLM is finished (don't wait for audio)
+                if llm_finished and not callbacks.final_assistant_answer_sent:
                     # Small delay to ensure on_partial_assistant_text callback has been called
                     await asyncio.sleep(0.1)
                     callbacks.send_final_assistant_answer() # Callbacks method
+                    logger.info(f"🖥️✅ Sent final assistant answer (LLM finished)")
 
+                # Only clean up generation when BOTH audio AND LLM are finished
+                if (not final_expected or audio_final_finished) and llm_finished:
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
                     conn_state.pipeline_manager.running_generation = None
 
                     callbacks.tts_chunk_sent = False # Reset via callbacks
                     callbacks.reset_state() # Reset connection state via callbacks
+                    logger.info(f"🖥️🧹 Cleaned up generation (both LLM and audio finished)")
 
                 log_status()
                 await asyncio.sleep(0.001)  # Only sleep when waiting
@@ -885,6 +889,7 @@ class TranscriptionCallbacks:
         logger.info(Colors.apply('🖥️🏁 =================== USER TURN END ===================').light_gray)
         self.user_finished_turn = True
         self.user_interrupted = False # Reset connection-specific flag (user finished, not interrupted)
+        self.final_assistant_answer_sent = False # Reset for next turn
         # Access connection-specific manager state
         if self.conn_state.pipeline_manager.is_valid_gen():
             logger.info(f"{Colors.apply('🖥️🔊 TTS ALLOWED (before final)').blue}")
