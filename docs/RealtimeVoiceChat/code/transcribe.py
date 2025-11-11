@@ -25,45 +25,33 @@ START_STT_SERVER = False # Set to True to use the client/server version of Realt
 DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "use_microphone": False,
     "spinner": False,
-    # Use medium.en model for speed while still supporting no_speech detection
+    # Use medium model for better accuracy (vLLM configured to use only 50% GPU)
     "model": "medium.en",
     "realtime_model_type": "medium.en",
     "use_main_model_for_realtime": True,
     "language": "en", # Default, will be overridden by source_language in __init__
-    
-    # VAD and segmentation tuning - more strict to avoid false triggers
-    "silero_sensitivity": 0.4,  # Increased from 0.25 - more strict about what counts as speech
+    # VAD and segmentation tuning
+    "silero_sensitivity": 0.4,
     "webrtc_sensitivity": 3,
-    "post_speech_silence_duration": 0.7,
-    "min_length_of_recording": 0.8,  # Increased from 0.5 - require longer audio before transcribing
-    "min_gap_between_recordings": 0.1,  # Increased from 0.05 - more gap between segments
+    "post_speech_silence_duration": 0.7,  # 0.7 seconds - more responsive
+    "min_length_of_recording": 0.5,  # Minimum speech length
+    "min_gap_between_recordings": 0.05,
     "enable_realtime_transcription": True,
     "realtime_processing_pause": 0.01,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,
     "early_transcription_on_silence": 0,
-    
-    # Beam search and quality settings
-    "beam_size": 3,  # Increased from 3 - better quality
-    "beam_size_realtime": 3,
-    
-    # CRITICAL: Use Whisper's built-in no_speech detection (no extra latency!)
-    # This rejects transcriptions where Whisper itself thinks there's no speech
-    "no_speech_prob_threshold": 0.6,  # Reject if no_speech probability > 0.6 (0.0-1.0)
-                                       # Higher = more strict (0.6 is recommended default)
-    
+    # Increase beam sizes for accuracy (slight latency cost)
+    "beam_size": 1,
+    "beam_size_realtime": 1,
     "no_log_file": True,
     "wake_words": "jarvis",
     "wakeword_backend": "pvporcupine",
     "allowed_latency_limit": 500,
-    
     # Callbacks will be added dynamically in _create_recorder
     "debug_mode": True,
-    
-    # Improved prompts to bias against hallucinations
-    "initial_prompt": "This is a clear conversation with actual speech. Ignore coughs, breathing, and background noise.",
-    "initial_prompt_realtime": "Clear speech only. No coughs or noise.",
-    
+    "initial_prompt": "This is a natural conversation.",
+    "initial_prompt_realtime": "",
     # Use faster-whisper built-in VAD to reduce mis-segmentation
     "faster_whisper_vad_filter": True,
 }
@@ -377,6 +365,12 @@ class TranscriptionProcessor:
                 logger.warning("👂❓ Final transcription received None or empty string.")
                 return
 
+            # Prevent duplicate processing of the same transcription
+            if hasattr(self, '_last_final_text') and self._last_final_text == text:
+                logger.debug(f"👂⚠️ Duplicate final transcription detected, skipping: '{text}'")
+                return
+            
+            self._last_final_text = text
             self.final_transcription = text
             logger.info(f"👂✅ {Colors.apply('Final user text: ').green} {Colors.apply(text).yellow}")
             self.sentence_end_cache.clear()
@@ -703,6 +697,9 @@ class TranscriptionProcessor:
             logger.info("👂▶️ Recording started.")
             self.set_silence(False)
             self.silence_time = 0.0
+            # Clear the duplicate detection cache when new recording starts
+            if hasattr(self, '_last_final_text'):
+                self._last_final_text = None
             if self.on_recording_start_callback:
                 self.on_recording_start_callback()
 
@@ -805,6 +802,25 @@ class TranscriptionProcessor:
             if text is None:
                 # logger.warning(f"👂❓ {Colors.RED}Partial text received None{Colors.RESET}") # Can be noisy
                 return
+            
+            # Filter out noise-based hallucinations by checking audio energy
+            # Only reject if energy is very low (pure noise), accept all real speech
+            if MIN_SPEECH_ENERGY_THRESHOLD > 0:
+                try:
+                    audio_data = self.get_last_audio_copy()
+                    if audio_data is not None and len(audio_data) > 0:
+                        audio_array = np.frombuffer(audio_data, dtype=np.int16)
+                        rms_energy = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+                        normalized_energy = rms_energy / INT16_MAX_ABS_VALUE
+                        
+                        if normalized_energy < MIN_SPEECH_ENERGY_THRESHOLD:
+                            logger.debug(f"👂🚫 Noise filter: Rejecting low-energy transcription ({normalized_energy:.4f}): '{text}'")
+                            return
+                        
+                        logger.debug(f"👂✅ Energy check passed ({normalized_energy:.4f}): '{text}'")
+                except Exception as e:
+                    logger.debug(f"👂⚠️ Energy check failed, accepting transcription: {e}")
+            
             self.realtime_text = text # Update the latest realtime text
 
             # Detect potential sentence ends based on punctuation stability
