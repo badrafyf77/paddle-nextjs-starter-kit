@@ -198,12 +198,6 @@ class AudioInputProcessor:
                     logger.info("👂🔌 Received termination signal for audio processing.")
                     break  # Termination signal
 
-                # Check if TTS is playing - if so, skip this audio chunk to prevent feedback loop
-                is_tts_playing = audio_data.get("isTTSPlaying", False)
-                if is_tts_playing:
-                    logger.debug("👂🔇 Skipping audio chunk - TTS is playing (preventing feedback)")
-                    continue
-
                 pcm_data = audio_data.pop("pcm")
 
                 # Process audio chunk (resampling happens consistently via float32)

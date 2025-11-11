@@ -28,16 +28,16 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     # Use medium model for better accuracy (vLLM configured to use only 50% GPU)
     "model": "medium.en",
     "realtime_model_type": "medium.en",
-    "use_main_model_for_realtime": True,
+    "use_main_model_for_realtime": False,
     "language": "en", # Default, will be overridden by source_language in __init__
     # VAD and segmentation tuning - STRICT to avoid triggering on coughs/noise
-    "silero_sensitivity": 0.6,  # Higher = only triggers on clear speech (0.0-1.0, default 0.5)
+    "silero_sensitivity": 0.05,  # Higher = only triggers on clear speech (0.0-1.0, default 0.5)
     "webrtc_sensitivity": 2,    # Lower = more strict (1-3, default 3)
     "post_speech_silence_duration": 0.7,
-    "min_length_of_recording": 1.2,  # Require 1.2s of audio - filters out short coughs/noises
-    "min_gap_between_recordings": 0.2,  # Larger gap prevents noise from re-triggering
+    "min_length_of_recording": 0.5,  # Require 1.2s of audio - filters out short coughs/noises
+    "min_gap_between_recordings": 0,  # Larger gap prevents noise from re-triggering
     "enable_realtime_transcription": True,
-    "realtime_processing_pause": 0.01,
+    "realtime_processing_pause": 0.03,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,
     "early_transcription_on_silence": 0,
@@ -50,8 +50,8 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "allowed_latency_limit": 500,
     # Callbacks will be added dynamically in _create_recorder
     "debug_mode": True,
-    "initial_prompt": "This is a natural conversation.",
-    "initial_prompt_realtime": "",
+    # "initial_prompt": "This is a natural conversation.",
+    "initial_prompt_realtime": "The sky is blue. When the sky... She walked home. Because he... Today is sunny. If only I...",
     # Use faster-whisper built-in VAD to reduce mis-segmentation
     "faster_whisper_vad_filter": True,
 }
@@ -365,12 +365,6 @@ class TranscriptionProcessor:
                 logger.warning("👂❓ Final transcription received None or empty string.")
                 return
 
-            # Prevent duplicate processing of the same transcription
-            if hasattr(self, '_last_final_text') and self._last_final_text == text:
-                logger.debug(f"👂⚠️ Duplicate final transcription detected, skipping: '{text}'")
-                return
-            
-            self._last_final_text = text
             self.final_transcription = text
             logger.info(f"👂✅ {Colors.apply('Final user text: ').green} {Colors.apply(text).yellow}")
             self.sentence_end_cache.clear()
@@ -697,9 +691,6 @@ class TranscriptionProcessor:
             logger.info("👂▶️ Recording started.")
             self.set_silence(False)
             self.silence_time = 0.0
-            # Clear the duplicate detection cache when new recording starts
-            if hasattr(self, '_last_final_text'):
-                self._last_final_text = None
             if self.on_recording_start_callback:
                 self.on_recording_start_callback()
 
@@ -803,23 +794,23 @@ class TranscriptionProcessor:
                 # logger.warning(f"👂❓ {Colors.RED}Partial text received None{Colors.RESET}") # Can be noisy
                 return
             
-            # Filter out noise-based hallucinations by checking audio energy
-            # Only reject if energy is very low (pure noise), accept all real speech
-            if MIN_SPEECH_ENERGY_THRESHOLD > 0:
-                try:
-                    audio_data = self.get_last_audio_copy()
-                    if audio_data is not None and len(audio_data) > 0:
-                        audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                        rms_energy = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
-                        normalized_energy = rms_energy / INT16_MAX_ABS_VALUE
+            # # Filter out noise-based hallucinations by checking audio energy
+            # # Only reject if energy is very low (pure noise), accept all real speech
+            # if MIN_SPEECH_ENERGY_THRESHOLD > 0:
+            #     try:
+            #         audio_data = self.get_last_audio_copy()
+            #         if audio_data is not None and len(audio_data) > 0:
+            #             audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            #             rms_energy = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+            #             normalized_energy = rms_energy / INT16_MAX_ABS_VALUE
                         
-                        if normalized_energy < MIN_SPEECH_ENERGY_THRESHOLD:
-                            logger.debug(f"👂🚫 Noise filter: Rejecting low-energy transcription ({normalized_energy:.4f}): '{text}'")
-                            return
+            #             if normalized_energy < MIN_SPEECH_ENERGY_THRESHOLD:
+            #                 logger.debug(f"👂🚫 Noise filter: Rejecting low-energy transcription ({normalized_energy:.4f}): '{text}'")
+            #                 return
                         
-                        logger.debug(f"👂✅ Energy check passed ({normalized_energy:.4f}): '{text}'")
-                except Exception as e:
-                    logger.debug(f"👂⚠️ Energy check failed, accepting transcription: {e}")
+            #             logger.debug(f"👂✅ Energy check passed ({normalized_energy:.4f}): '{text}'")
+            #     except Exception as e:
+            #         logger.debug(f"👂⚠️ Energy check failed, accepting transcription: {e}")
             
             self.realtime_text = text # Update the latest realtime text
 

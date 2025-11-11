@@ -634,13 +634,14 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     logger.info(f"🖥️✅ Sent final assistant answer (LLM finished)")
 
                 # Only clean up generation when BOTH audio AND LLM are finished
+                # AND the client has stopped playing (to avoid cutting off audio)
                 if (not final_expected or audio_final_finished) and llm_finished:
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
                     conn_state.pipeline_manager.running_generation = None
 
                     callbacks.tts_chunk_sent = False # Reset via callbacks
                     callbacks.reset_state() # Reset connection state via callbacks
-                    logger.info(f"🖥️🧹 Cleaned up generation (both LLM and audio finished)")
+                    logger.info(f"🖥️🧹 Cleaned up generation")
 
                 log_status()
                 await asyncio.sleep(0.001)  # Only sleep when waiting
