@@ -454,9 +454,15 @@ class SpeechPipelineManager:
 
                     chunk = self.preprocess_chunk(chunk)
                     token_count += 1
-                    current_gen.quick_answer += chunk
-                    if self.no_think:
-                        current_gen.quick_answer = self.clean_quick_answer(current_gen.quick_answer)
+                    
+                    # Accumulate into quick_answer or final_answer depending on whether boundary was found
+                    if not current_gen.quick_answer_provided:
+                        current_gen.quick_answer += chunk
+                        if self.no_think:
+                            current_gen.quick_answer = self.clean_quick_answer(current_gen.quick_answer)
+                    else:
+                        # After boundary found, accumulate into final_answer
+                        current_gen.final_answer += chunk
 
                     if token_count == 1:
                         logger.info(f"🗣️🧠⏱️ [Gen {gen_id}] LLM Worker: TTFT: {(time.time() - start_time):.4f}s")
@@ -473,6 +479,10 @@ class SpeechPipelineManager:
                             current_gen.quick_answer_provided = True
                             self.llm_answer_ready_event.set() # Signal TTS quick worker
                             # Do NOT break here, continue iterating to finish the full LLM response
+                    else:
+                        # Update partial assistant text with full response (quick + final)
+                        if self.on_partial_assistant_text:
+                            self.on_partial_assistant_text(current_gen.quick_answer + current_gen.final_answer)
 
 
                 # Loop finished naturally or broke due to stop request
@@ -730,6 +740,7 @@ class SpeechPipelineManager:
         `stop_tts_final_finished_event` and internal flags. Runs until `shutdown_event` is set.
         """
         logger.info("🗣️👄🚀 Final TTS Worker: Starting...")
+        last_logged_gen_id = None
         while not self.shutdown_event.is_set():
             current_gen = self.running_generation
             time.sleep(0.01) # Prevent tight spinning when idle
@@ -741,6 +752,11 @@ class SpeechPipelineManager:
             if not current_gen.audio_quick_finished: continue # Quick TTS hasn't finished (successfully or aborted)
 
             gen_id = current_gen.id # Get ID once prerequisites seem met
+            
+            # Log status once per generation to debug why final TTS isn't starting
+            if gen_id != last_logged_gen_id:
+                logger.info(f"🗣️👄🔍 [Gen {gen_id}] Final TTS Worker: Checking conditions - quick_aborted={current_gen.audio_quick_aborted}, quick_provided={current_gen.quick_answer_provided}, abortion_started={current_gen.abortion_started}, overhang='{current_gen.quick_answer_overhang[:50] if current_gen.quick_answer_overhang else None}'")
+                last_logged_gen_id = gen_id
 
             # --- Check conditions to *start* final TTS ---
             if current_gen.audio_quick_aborted:

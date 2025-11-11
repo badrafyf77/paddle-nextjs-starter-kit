@@ -44,7 +44,7 @@ services:
       - --model=Qwen/Qwen2.5-3B-Instruct
       - --dtype=auto
       - --max-model-len=4096
-      - --gpu-memory-utilization=0.5
+      - --gpu-memory-utilization=0.8
       - --max-num-seqs=32
       - --enable-chunked-prefill
       - --max-num-batched-tokens=8192

@@ -29,6 +29,12 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
       this.bufferQueue.push(event.data);
       this.samplesRemaining += event.data.length;
 
+      // Log buffer status
+      this.port.postMessage({
+        type: 'debug',
+        message: `Buffered ${event.data.length} samples, total: ${this.samplesRemaining}, queue: ${this.bufferQueue.length}`,
+      });
+
       // Reset silence counter when new data arrives
       if (this.samplesRemaining > 0) {
         this.silenceFrames = 0;

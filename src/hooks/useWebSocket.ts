@@ -25,17 +25,21 @@ export function useWebSocket(serverUrl: string) {
       ttsWorkletNodeRef.current = new AudioWorkletNode(audioContextRef.current, 'tts-playback-processor');
 
       ttsWorkletNodeRef.current.port.onmessage = (event) => {
-        const { type } = event.data;
+        const { type, message } = event.data;
         if (type === 'ttsPlaybackStarted') {
+          console.log('🔊 TTS playback started');
           setIsTTSPlaying(true);
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type: 'tts_start' }));
           }
         } else if (type === 'ttsPlaybackStopped') {
+          console.log('🔇 TTS playback stopped');
           setIsTTSPlaying(false);
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
           }
+        } else if (type === 'debug') {
+          console.log(`🔊 Worklet: ${message}`);
         }
       };
 
@@ -244,7 +248,10 @@ export function useWebSocket(serverUrl: string) {
       case 'tts_chunk':
         if (ttsWorkletNodeRef.current && content) {
           const int16Data = base64ToInt16Array(content);
+          console.log(`🔊 Received TTS chunk: ${int16Data.length} samples (${(int16Data.length / 24000).toFixed(3)}s)`);
           ttsWorkletNodeRef.current.port.postMessage(int16Data);
+        } else {
+          console.warn('⚠️ Received TTS chunk but worklet not ready or no content');
         }
         break;
 

@@ -634,10 +634,21 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     callbacks.send_final_assistant_answer() # Callbacks method
                     logger.info(f"🖥️✅ Sent final assistant answer (LLM finished)")
 
-                # Only clean up generation when BOTH audio AND LLM are finished
-                # AND all audio chunks have been consumed from the queue
+                # Only clean up generation when LLM is finished AND queue is empty
                 # Check if queue is truly empty (not just momentarily empty during streaming)
                 queue_empty = conn_state.pipeline_manager.running_generation.audio_chunks.empty()
+                
+                # Determine if we should wait for final TTS
+                should_wait_for_final = final_expected and not audio_final_finished
+                
+                # If we're waiting for final TTS but LLM finished a while ago, give up waiting
+                if should_wait_for_final and llm_finished:
+                    # Check if enough time has passed since LLM finished (e.g., 1 second)
+                    if not hasattr(conn_state.pipeline_manager.running_generation, '_llm_finish_time'):
+                        conn_state.pipeline_manager.running_generation._llm_finish_time = time.time()
+                    elif time.time() - conn_state.pipeline_manager.running_generation._llm_finish_time > 1.0:
+                        logger.warning(f"🖥️⚠️ Final TTS didn't start within 1s of LLM finishing, proceeding with cleanup")
+                        should_wait_for_final = False
                 
                 # Wait a bit longer if audio just finished to ensure all chunks are sent
                 if audio_final_finished and not queue_empty:
@@ -646,14 +657,15 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     await asyncio.sleep(0.001)
                     continue
                 
-                # Clean up only when everything is done AND queue is empty
-                if (not final_expected or audio_final_finished) and llm_finished and queue_empty:
+                # Clean up when LLM is done, queue is empty, and we're not waiting for final TTS
+                if llm_finished and queue_empty and not should_wait_for_final:
                     # Extra safety: wait a tiny bit to ensure last chunk was sent
                     if last_chunk_sent > 0 and time.time() - last_chunk_sent < 0.1:
                         logger.debug(f"🖥️🔊 Last chunk sent recently, waiting before cleanup...")
                         await asyncio.sleep(0.05)
                     
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
+                    logger.info(f"🖥️🧹 Cleaning up generation (final_expected={final_expected}, audio_final_finished={audio_final_finished})")
                     conn_state.pipeline_manager.running_generation = None
 
                     callbacks.tts_chunk_sent = False # Reset via callbacks
