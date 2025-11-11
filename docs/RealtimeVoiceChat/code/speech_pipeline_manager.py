@@ -648,6 +648,10 @@ class SpeechPipelineManager:
             # Double-check if this generation was aborted *just* before we got here
             if current_gen.audio_quick_aborted or current_gen.abortion_started:
                 logger.info(f"🗣️👄❌ [Gen {current_gen.id}] Quick TTS Worker: Generation already marked as aborted. Skipping.")
+                # Mark as finished so Final TTS can proceed and worker can handle next generation
+                current_gen.audio_quick_finished = True
+                self.tts_quick_generation_active = False
+                self.stop_tts_quick_finished_event.set()
                 continue
 
             gen_id = current_gen.id
@@ -741,12 +745,20 @@ class SpeechPipelineManager:
         """
         logger.info("🗣️👄🚀 Final TTS Worker: Starting...")
         last_logged_gen_id = None
+        last_log_time = 0
         while not self.shutdown_event.is_set():
             current_gen = self.running_generation
             time.sleep(0.01) # Prevent tight spinning when idle
 
             # --- Wait for prerequisites ---
             if not current_gen: continue # No active generation
+            
+            # Log status periodically for debugging
+            now = time.time()
+            if current_gen and now - last_log_time > 0.5:  # Log every 0.5s
+                logger.debug(f"🗣️👄⏳ [Gen {current_gen.id}] Final TTS waiting: tts_final_started={current_gen.tts_final_started}, tts_quick_started={current_gen.tts_quick_started}, audio_quick_finished={current_gen.audio_quick_finished}")
+                last_log_time = now
+            
             if current_gen.tts_final_started: continue # Final TTS already running for this gen
             if not current_gen.tts_quick_started: continue # Quick TTS hasn't even started
             if not current_gen.audio_quick_finished: continue # Quick TTS hasn't finished (successfully or aborted)

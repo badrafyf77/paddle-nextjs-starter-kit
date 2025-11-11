@@ -622,10 +622,12 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     last_quick_answer_chunk = time.time()
                     logger.debug(f"🖥️🔊 Got audio chunk from queue, size={len(chunk)} bytes")
             except Empty:
-                logger.debug(f"🖥️🔊 Audio queue empty, checking if generation is done...")
+                gen_id = conn_state.pipeline_manager.running_generation.id
+                logger.debug(f"🖥️🔊 [Gen {gen_id}] Audio queue empty, checking if generation is done...")
                 final_expected = conn_state.pipeline_manager.running_generation.quick_answer_provided
                 audio_final_finished = conn_state.pipeline_manager.running_generation.audio_final_finished
                 llm_finished = conn_state.pipeline_manager.running_generation.llm_finished
+                logger.debug(f"🖥️🔊 [Gen {gen_id}] Cleanup check: final_expected={final_expected}, audio_final_finished={audio_final_finished}, llm_finished={llm_finished}")
 
                 # Send final answer when LLM is finished (don't wait for audio)
                 if llm_finished and not callbacks.final_assistant_answer_sent:
