@@ -30,18 +30,18 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "realtime_model_type": "medium.en",
     "use_main_model_for_realtime": True,
     "language": "en", # Default, will be overridden by source_language in __init__
-    # VAD and segmentation tuning
-    "silero_sensitivity": 0.4,
-    "webrtc_sensitivity": 3,
-    "post_speech_silence_duration": 0.7,  # 0.7 seconds - more responsive
-    "min_length_of_recording": 0.5,  # Minimum speech length
-    "min_gap_between_recordings": 0.05,
+    # VAD and segmentation tuning - STRICT to avoid triggering on coughs/noise
+    "silero_sensitivity": 0.6,  # Higher = only triggers on clear speech (0.0-1.0, default 0.5)
+    "webrtc_sensitivity": 2,    # Lower = more strict (1-3, default 3)
+    "post_speech_silence_duration": 0.7,
+    "min_length_of_recording": 1.2,  # Require 1.2s of audio - filters out short coughs/noises
+    "min_gap_between_recordings": 0.2,  # Larger gap prevents noise from re-triggering
     "enable_realtime_transcription": True,
     "realtime_processing_pause": 0.01,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,
     "early_transcription_on_silence": 0,
-    # Increase beam sizes for accuracy (slight latency cost)
+    # Beam sizes - keep at 1 for speed
     "beam_size": 1,
     "beam_size_realtime": 1,
     "no_log_file": True,

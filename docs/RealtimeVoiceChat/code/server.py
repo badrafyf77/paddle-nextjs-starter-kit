@@ -779,17 +779,17 @@ class TranscriptionCallbacks:
         Updates internal state, sends the partial result to the client,
         and signals the abort worker thread to check for potential interruptions.
         
-        IMPORTANT: Only interrupts TTS if there's actual speech content (non-empty text).
-        This prevents false positives from noise triggering premature TTS stops.
+        IMPORTANT: Only interrupts TTS ONCE when speech is first detected.
+        This prevents false positives from noise and avoids duplicate abort processing.
 
         Args:
             txt: The partial transcription text.
         """
-        # Only interrupt TTS if there's actual speech content
-        if txt and txt.strip() and self.tts_client_playing:
-            # User is actually speaking - interrupt TTS
+        # Only interrupt TTS if there's actual speech content AND we haven't already interrupted
+        if txt and txt.strip() and self.tts_client_playing and not self.user_interrupted:
+            # User is actually speaking - interrupt TTS (ONCE)
             self.tts_to_client = False # Stop server sending TTS
-            self.user_interrupted = True # Mark connection as user interrupted
+            self.user_interrupted = True # Mark connection as user interrupted (prevents re-interruption)
             logger.info(f"{Colors.apply('🖥️❗ INTERRUPTING TTS due to actual speech: ').blue}'{txt[:30]}...'")
 
             # Send final assistant answer *if* one was generated and not sent
