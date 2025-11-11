@@ -225,7 +225,7 @@ export function useWebSocket(serverUrl: string) {
 
       case 'final_assistant_answer':
         setMessages((prev) => {
-          // Mark the last partial assistant message as final
+          // Mark the last partial assistant message as final and update content if provided
           const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
 
           if (lastAssistantIndex !== -1) {
@@ -233,13 +233,26 @@ export function useWebSocket(serverUrl: string) {
             updated[lastAssistantIndex] = {
               ...updated[lastAssistantIndex],
               type: 'final' as const,
+              // Update content if provided (server sends the final cleaned content)
+              content: content && content.trim() ? content : updated[lastAssistantIndex].content,
             };
-            console.log('✅ Marked assistant message as final');
+            console.log('✅ Marked assistant message as final', content ? 'with updated content' : '');
             return updated;
           } else {
-            // No partial message found - this shouldn't happen with sentence streaming
-            // but handle it gracefully
-            console.log('⚠️ No partial assistant message to finalize');
+            // No partial message found - create a new final message
+            console.log('⚠️ No partial assistant message found, creating new final message');
+            if (content && content.trim()) {
+              return [
+                ...prev,
+                {
+                  id: `assistant-final-${Date.now()}`,
+                  role: 'assistant' as const,
+                  content,
+                  type: 'final' as const,
+                  timestamp: Date.now(),
+                },
+              ];
+            }
           }
           return prev;
         });
