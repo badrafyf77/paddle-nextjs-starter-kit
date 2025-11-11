@@ -5,6 +5,11 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
     this.readOffset = 0;
     this.samplesRemaining = 0;
     this.isPlaying = false;
+    this.silenceFrames = 0;
+    // Grace period: ~500ms of silence at 24kHz (128 samples per frame)
+    // 24000 samples/sec ÷ 128 samples/frame = 187.5 frames/sec
+    // 500ms = 0.5 sec × 187.5 frames/sec ≈ 94 frames
+    this.SILENCE_THRESHOLD = 94;
 
     // Listen for incoming messages
     this.port.onmessage = (event) => {
@@ -15,6 +20,7 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
         this.readOffset = 0;
         this.samplesRemaining = 0;
         this.isPlaying = false;
+        this.silenceFrames = 0;
         return;
       }
 
@@ -22,6 +28,11 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
       // (You may also check here if event.data instanceof Int16Array if needed)
       this.bufferQueue.push(event.data);
       this.samplesRemaining += event.data.length;
+
+      // Reset silence counter when new data arrives
+      if (this.samplesRemaining > 0) {
+        this.silenceFrames = 0;
+      }
     };
   }
 
@@ -30,12 +41,21 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
 
     if (this.samplesRemaining === 0) {
       outputChannel.fill(0);
+
+      // Only stop after grace period of silence
       if (this.isPlaying) {
-        this.isPlaying = false;
-        this.port.postMessage({ type: 'ttsPlaybackStopped' });
+        this.silenceFrames++;
+        if (this.silenceFrames >= this.SILENCE_THRESHOLD) {
+          this.isPlaying = false;
+          this.silenceFrames = 0;
+          this.port.postMessage({ type: 'ttsPlaybackStopped' });
+        }
       }
       return true;
     }
+
+    // Reset silence counter when we have data
+    this.silenceFrames = 0;
 
     if (!this.isPlaying) {
       this.isPlaying = true;

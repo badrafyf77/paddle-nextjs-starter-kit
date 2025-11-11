@@ -744,13 +744,13 @@ class SpeechPipelineManager:
 
             # --- Check conditions to *start* final TTS ---
             if current_gen.audio_quick_aborted:
-                #logger.debug(f"🗣️👄🙅 [Gen {gen_id}] Final TTS Worker: Quick TTS was aborted, skipping final TTS.")
+                logger.debug(f"🗣️👄🙅 [Gen {gen_id}] Final TTS Worker: Quick TTS was aborted, skipping final TTS.")
                 continue
             if not current_gen.quick_answer_provided:
                  logger.debug(f"🗣️👄🙅 [Gen {gen_id}] Final TTS Worker: Quick answer boundary was not found, skipping final TTS (quick TTS handled everything).")
                  continue
             if current_gen.abortion_started:
-                 logger.debug(f"🗣️👄🙅 [Gen {gen_id}] Final TTS Worker: Generation is aborting, skipping final TTS.")
+                 logger.info(f"🗣️👄🙅 [Gen {gen_id}] Final TTS Worker: Generation is aborting, skipping final TTS.")
                  continue
 
             # --- Conditions met, start final TTS ---

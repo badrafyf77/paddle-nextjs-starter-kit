@@ -620,8 +620,9 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                 chunk = conn_state.pipeline_manager.running_generation.audio_chunks.get_nowait()
                 if chunk:
                     last_quick_answer_chunk = time.time()
-                    # TTS chunk received - no need to log every chunk
+                    logger.debug(f"🖥️🔊 Got audio chunk from queue, size={len(chunk)} bytes")
             except Empty:
+                logger.debug(f"🖥️🔊 Audio queue empty, checking if generation is done...")
                 final_expected = conn_state.pipeline_manager.running_generation.quick_answer_provided
                 audio_final_finished = conn_state.pipeline_manager.running_generation.audio_final_finished
                 llm_finished = conn_state.pipeline_manager.running_generation.llm_finished
@@ -634,8 +635,24 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     logger.info(f"🖥️✅ Sent final assistant answer (LLM finished)")
 
                 # Only clean up generation when BOTH audio AND LLM are finished
-                # AND the client has stopped playing (to avoid cutting off audio)
-                if (not final_expected or audio_final_finished) and llm_finished:
+                # AND all audio chunks have been consumed from the queue
+                # Check if queue is truly empty (not just momentarily empty during streaming)
+                queue_empty = conn_state.pipeline_manager.running_generation.audio_chunks.empty()
+                
+                # Wait a bit longer if audio just finished to ensure all chunks are sent
+                if audio_final_finished and not queue_empty:
+                    logger.debug(f"🖥️🔊 Audio finished but queue not empty, waiting for chunks to be sent...")
+                    log_status()
+                    await asyncio.sleep(0.001)
+                    continue
+                
+                # Clean up only when everything is done AND queue is empty
+                if (not final_expected or audio_final_finished) and llm_finished and queue_empty:
+                    # Extra safety: wait a tiny bit to ensure last chunk was sent
+                    if last_chunk_sent > 0 and time.time() - last_chunk_sent < 0.1:
+                        logger.debug(f"🖥️🔊 Last chunk sent recently, waiting before cleanup...")
+                        await asyncio.sleep(0.05)
+                    
                     assistant_answer = conn_state.pipeline_manager.running_generation.quick_answer + conn_state.pipeline_manager.running_generation.final_answer                    
                     conn_state.pipeline_manager.running_generation = None
 
@@ -649,7 +666,7 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
 
             # Process chunk immediately without sleeping
             base64_chunk = conn_state.upsampler.get_base64_chunk(chunk)
-            logger.debug(f"🖥️🔊 sending tts_chunk b64_len={len(base64_chunk)}")
+            logger.info(f"🖥️🔊📤 Sending tts_chunk to client, b64_len={len(base64_chunk)}, raw_len={len(chunk)}")
             message_queue.put_nowait({
                 "type": "tts_chunk",
                 "content": base64_chunk
