@@ -224,9 +224,16 @@ export function useWebSocket(serverUrl: string) {
         break;
 
       case 'final_assistant_answer':
+        console.log('📨 Received final_assistant_answer:', { content, contentLength: content?.length });
         setMessages((prev) => {
+          console.log(
+            '📊 Current messages before final:',
+            prev.map((m) => ({ role: m.role, type: m.type, contentPreview: m.content.substring(0, 30) })),
+          );
+
           // Mark the last partial assistant message as final and update content if provided
           const lastAssistantIndex = prev.findLastIndex((m) => m.role === 'assistant' && m.type === 'partial');
+          console.log('🔍 Last partial assistant index:', lastAssistantIndex);
 
           if (lastAssistantIndex !== -1) {
             const updated = [...prev];
@@ -236,7 +243,11 @@ export function useWebSocket(serverUrl: string) {
               // Update content if provided (server sends the final cleaned content)
               content: content && content.trim() ? content : updated[lastAssistantIndex].content,
             };
-            console.log('✅ Marked assistant message as final', content ? 'with updated content' : '');
+            console.log(
+              '✅ Marked assistant message as final',
+              content ? 'with updated content' : '',
+              updated[lastAssistantIndex],
+            );
             return updated;
           } else {
             // No partial message found - create a new final message

@@ -633,7 +633,9 @@ async def send_tts_chunks(conn_state, message_queue: asyncio.Queue, callbacks: '
                     conn_state.pipeline_manager.running_generation = None
 
                     callbacks.tts_chunk_sent = False # Reset via callbacks
-                    callbacks.reset_state() # Reset connection state via callbacks
+                    # Don't call reset_state() here - it sets tts_to_client=False which prevents
+                    # final partial_assistant_answer messages from being sent if LLM is still generating
+                    # State will be reset when the next user turn starts (on_before_final)
 
                 await asyncio.sleep(0.001)
                 log_status()
