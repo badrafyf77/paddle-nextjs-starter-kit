@@ -25,33 +25,45 @@ START_STT_SERVER = False # Set to True to use the client/server version of Realt
 DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "use_microphone": False,
     "spinner": False,
-    # Use medium model for better accuracy (vLLM configured to use only 50% GPU)
+    # Use medium.en model for speed while still supporting no_speech detection
     "model": "medium.en",
     "realtime_model_type": "medium.en",
     "use_main_model_for_realtime": True,
     "language": "en", # Default, will be overridden by source_language in __init__
-    # VAD and segmentation tuning
-    "silero_sensitivity": 0.25,
+    
+    # VAD and segmentation tuning - more strict to avoid false triggers
+    "silero_sensitivity": 0.4,  # Increased from 0.25 - more strict about what counts as speech
     "webrtc_sensitivity": 3,
-    "post_speech_silence_duration": 0.7,  # 0.7 seconds - more responsive
-    "min_length_of_recording": 0.5,  # Minimum speech length
-    "min_gap_between_recordings": 0.05,
+    "post_speech_silence_duration": 0.7,
+    "min_length_of_recording": 0.8,  # Increased from 0.5 - require longer audio before transcribing
+    "min_gap_between_recordings": 0.1,  # Increased from 0.05 - more gap between segments
     "enable_realtime_transcription": True,
     "realtime_processing_pause": 0.01,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,
     "early_transcription_on_silence": 0,
-    # Increase beam sizes for accuracy (slight latency cost)
-    "beam_size": 3,
+    
+    # Beam search and quality settings
+    "beam_size": 3,  # Increased from 3 - better quality
     "beam_size_realtime": 3,
+    
+    # CRITICAL: Use Whisper's built-in no_speech detection (no extra latency!)
+    # This rejects transcriptions where Whisper itself thinks there's no speech
+    "no_speech_prob_threshold": 0.6,  # Reject if no_speech probability > 0.6 (0.0-1.0)
+                                       # Higher = more strict (0.6 is recommended default)
+    
     "no_log_file": True,
     "wake_words": "jarvis",
     "wakeword_backend": "pvporcupine",
     "allowed_latency_limit": 500,
+    
     # Callbacks will be added dynamically in _create_recorder
     "debug_mode": True,
-    "initial_prompt": "This is a natural conversation. Common words: okay, um, yeah, hello, thanks.",
-    "initial_prompt_realtime": "Natural speech with filler words.",
+    
+    # Improved prompts to bias against hallucinations
+    "initial_prompt": "This is a clear conversation with actual speech. Ignore coughs, breathing, and background noise.",
+    "initial_prompt_realtime": "Clear speech only. No coughs or noise.",
+    
     # Use faster-whisper built-in VAD to reduce mis-segmentation
     "faster_whisper_vad_filter": True,
 }
